@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rtc_od_and_localization</name>
+  <version>3.0.0</version>
+  <description>RTC Odometry and Localization</description>
+
+  <maintainer email="your.email@example.com">Your Name</maintainer>
+  <license>MIT</license>
+
+  <!-- Dependencies -->
+  <depend>rclpy</depend>
+  <depend>cv_bridge</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  
+  <!-- Build system -->
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+  
+  <!-- Build dependencies -->
+  <build_depend>zed_interfaces</build_depend> 
+
+  <!-- Execution dependencies -->
+  <exec_depend>zed_interfaces</exec_depend>
+  <exec_depend>zed_wrapper</exec_depend>
+</package>
