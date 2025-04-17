@@ -7,7 +7,7 @@ from math import pi, log, exp
 import numpy as np
 import rclpy
 
-import tf_transformations as tr
+# import tf_transformations as tr
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile,ReliabilityPolicy
@@ -54,7 +54,7 @@ class Detector(Node):
         self.subscription = self.create_subscription(
             ObjectsStamped,
             '/zed/zed_node/obj_det/objects',
-            self.listener_callback,
+            self.object_detection_callback,
             10)
         
         # sub to rtab pose
@@ -67,6 +67,7 @@ class Detector(Node):
         for obj in msg.objects:
             if obj.label in ['person', 'backpack']: #and obj.tracking_state == 1:  # only if actively tracked
                 if obj.confidence < self.CONF_THRESHOLD:
+                    self.get_logger().info(f"Detection too low-conf: {obj.confidence}")
                     continue  # skip low-confidence objects
                 
                 # Get position in camera frame
