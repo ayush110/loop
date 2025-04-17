@@ -2,11 +2,9 @@
 <package format="3">
   <name>rtc_od_and_localization</name>
   <version>3.0.0</version>
-  <description>RTC Odometry and Localization</description>
-
-  <maintainer email="your.email@example.com">Your Name</maintainer>
-  <license>MIT</license>
-
+  <description>RTC object detection and Localization</description>
+  <maintainer email="robotics@todo.todo">robotics</maintainer>
+  <license>TODO: License declaration</license>
   <!-- Dependencies -->
   <depend>rclpy</depend>
   <depend>cv_bridge</depend>
@@ -14,13 +12,16 @@
   <depend>std_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>tf2</depend>
-  
+  <depend>sensor_msgs</depend>
+
   <!-- Build system -->
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
   
   <!-- Build dependencies -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
   <build_depend>zed_interfaces</build_depend> 
 
   <!-- Execution dependencies -->
