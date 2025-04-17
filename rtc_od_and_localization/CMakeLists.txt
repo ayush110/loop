@@ -23,12 +23,13 @@ find_package(rclpy REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+# find_package(zed_wrapper REQUIRED) 
 
 # Install Python executables
 install(PROGRAMS
 src/object_detect_node.py
-
-
+src/navigation_controller.py
+src/localization_node.py
 DESTINATION lib/${PROJECT_NAME}
 )
 
