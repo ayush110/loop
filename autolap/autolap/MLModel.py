@@ -1,0 +1,91 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Twist
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+import tensorflow as tf
+
+class DonkeyTRTNode(Node):
+    def __init__(self):
+        super().__init__('donkey_trt_node')
+       
+        # Load TensorRT-optimized model
+        self.model = tf.saved_model.load('models/trt_model')
+        self.predict = self.model.signatures['serving_default']
+       
+        # Initialize CV bridge
+        self.bridge = CvBridge()
+       
+        # ROS2 parameters
+        self.declare_parameter('throttle_gain', 0.3)
+        self.declare_parameter('input_shape', [120, 160])
+        self.declare_parameter('camera_topic', '/zed2/zed_node/left/image_rect_color')
+       
+        # Get parameters
+        self.throttle = self.get_parameter('throttle_gain').value
+        self.input_shape = self.get_parameter('input_shape').value
+        camera_topic = self.get_parameter('camera_topic').value
+       
+        # Create subscribers/publishers
+        self.sub = self.create_subscription(
+            Image,
+            camera_topic,
+            self.image_callback,
+            10
+        )
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+       
+        self.get_logger().info("Node initialized. Waiting for camera images...")
+
+    def preprocess_image(self, cv_image):
+        # Resize and normalize
+        img = cv2.resize(cv_image, tuple(self.input_shape[::-1]))
+        img = img.astype(np.float32) / 255.0
+        return img
+
+    def image_callback(self, msg):
+        try:
+            # Convert ROS Image to OpenCV
+            cv_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+           
+            # Preprocess
+            processed = self.preprocess_image(cv_img)
+           
+            # Convert to tensor
+            input_tensor = tf.convert_to_tensor(
+                np.expand_dims(processed, 0),
+                dtype=tf.float32
+            )
+           
+            # TensorRT inference
+            output = self.predict(input_tensor)
+           
+            # Extract steering (adjust output name if needed)
+            steering = output['output_0'].numpy()[0][0]
+           
+            # Create and publish command
+            twist = Twist()
+            twist.linear.x = float(self.throttle)
+            twist.angular.z = float(steering)
+            self.cmd_pub.publish(twist)
+           
+            self.get_logger().debug(f"Steering: {steering:.3f}", throttle=30)
+
+        except Exception as e:
+            self.get_logger().error(f"Processing error: {str(e)}")
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = DonkeyTRTNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+
