@@ -71,11 +71,20 @@ class MLModel(Node):
            
             # TensorRT inference
             output = self.predict(input_tensor)
-           
-            
-           
-            self.get_logger().info(f"Steering: {output}")
 
+            # Extract model output
+            # Assumes output is like {'output_0': [[steering, throttle]]}
+            throttle = float(output['n_outputs1'].numpy()[0][0])
+            steering = float(output['n_outputs0'].numpy()[0][0])
+
+            self.get_logger().info(f"Predicted -> Steering: {steering:.4f}, Throttle: {throttle:.4f}")
+
+            # Publish Twist message
+            twist_msg = Twist()
+            twist_msg.linear.x = throttle
+            twist_msg.angular.z = steering
+            self.cmd_pub.publish(twist_msg)
+            
         except Exception as e:
             self.get_logger().error(f"Processing error: {str(e)}")
 
