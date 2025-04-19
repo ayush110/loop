@@ -82,6 +82,9 @@ class Detector(Node):
 
                 # Transform to map frame using tf2
                 position_map = self._transform_point_in_map(position)
+                if not position_map:
+                    self.obstacle_mutex.release()
+                    return
                 
                 # Check if object of same class is already stored
                 obj_list = self.detected_objects[obj.label]
