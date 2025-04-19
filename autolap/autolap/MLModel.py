@@ -23,6 +23,10 @@ class MLModel(Node):
         self.declare_parameter('throttle_gain', 0.3)
         self.declare_parameter('input_shape', [120, 160])
         self.declare_parameter('camera_topic', '/zed/zed_node/rgb_raw/image_raw_color')
+
+        self.prev_steering = 0.0
+        self.prev_throttle = 0.0
+        self.alpha = 0.2  # Smoothing factor (0 = more smoothing, 1 = no smoothing)
        
         # Get parameters
         self.throttle = self.get_parameter('throttle_gain').value
@@ -43,7 +47,6 @@ class MLModel(Node):
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
        
         self.get_logger().info("Node initialized. Waiting for camera images...")
-        #self.image_callback(None)
 
     def preprocess_image(self, cv_image):
         # Resize and normalize
@@ -52,7 +55,6 @@ class MLModel(Node):
         return img
 
     def image_callback(self, msg):
-        #self.get_logger().info("hello")
         try:
             # Convert ROS Image to OpenCV
 
@@ -76,6 +78,14 @@ class MLModel(Node):
             # Assumes output is like {'output_0': [[steering, throttle]]}
             throttle = float(output['n_outputs1'].numpy()[0][0])
             steering = float(output['n_outputs0'].numpy()[0][0])
+
+            # Smooth using exponential moving average
+            # steering = self.alpha * steering + (1 - self.alpha) * self.prev_steering
+            # throttle = self.alpha * throttle + (1 - self.alpha) * self.prev_throttle
+
+            # # Update previous values
+            # self.prev_steering = steering
+            # self.prev_throttle = throttle
 
             self.get_logger().info(f"Predicted -> Steering: {steering:.4f}, Throttle: {throttle:.4f}")
 
