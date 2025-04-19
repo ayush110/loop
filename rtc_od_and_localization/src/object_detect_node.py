@@ -14,12 +14,12 @@ from rclpy.qos import QoSProfile,ReliabilityPolicy
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import String, Header, ColorRGBA
 from nav_msgs.msg import OccupancyGrid, MapMetaData, Odometry
-from geometry_msgs.msg import Twist, PoseStamped, Point, PointStamped
+from geometry_msgs.msg import Twist, PoseStamped, Point, PointStamped, PoseWithCovarianceStamped
 from sensor_msgs.msg import LaserScan
 from builtin_interfaces.msg import Time, Duration
 from tf2_ros import Buffer, TransformListener
 from threading import Thread, Lock
-from zed_interfaces.msg import ObjectsStamped
+from zed_msgs.msg import ObjectsStamped # from zed_interfaces.msg import ObjectStamped (FOR USE ON REAL ROBOT)
 from tf2_geometry_msgs.tf2_geometry_msgs import do_transform_point        
 
 class Detector(Node):
@@ -38,7 +38,10 @@ class Detector(Node):
             'person': [],
             'backpack': []
         }
-        self.mutex = Lock()
+        self.localization_mutex = Lock()
+        self.obstacle_mutex = Lock()
+
+        self.global_pose = None
         ################################Publisher##################################################
 
         # pub to something for constraints if needed
@@ -51,19 +54,16 @@ class Detector(Node):
 
 
         # sub to zed2
-        self.subscription = self.create_subscription(
+        self.camera_detector_subscriber = self.create_subscription(
             ObjectsStamped,
             '/zed/zed_node/obj_det/objects',
             self.object_detection_callback,
             10)
         
-        # sub to rtab pose
-
-        # store based on the confidence level?
-        # maybe store object detections in some sort of state estimator
-        # once the goal is reached
+        # sub to goal reached
 
     def object_detection_callback(self, msg: ObjectsStamped):
+        self.obstacle_mutex.acquire()
         for obj in msg.objects:
             if obj.label in ['person', 'backpack']: #and obj.tracking_state == 1:  # only if actively tracked
                 if obj.confidence < self.CONF_THRESHOLD:
@@ -95,8 +95,12 @@ class Detector(Node):
                     'avg_position': position_map,
                     'confidence_total': obj.confidence
                 })
+        self.obstacle_mutex.release()
 
-                # TODO: potentially publish obstacles and the dimensions
+    def localization_callback(self, msg: PoseWithCovarianceStamped):
+        self.localization_mutex.acquire()
+        self.global_pose = msg
+        self.localization_mutex.release()
 
     def goal_reached_callback(self, msg):
         # now we need to write to csv 3 objects, class, position
