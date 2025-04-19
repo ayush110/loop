@@ -6,13 +6,14 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import tensorflow as tf
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
-class DonkeyTRTNode(Node):
+class MLModel(Node):
     def __init__(self):
-        super().__init__('donkey_trt_node')
+        super().__init__('ml_model')
        
         # Load TensorRT-optimized model
-        self.model = tf.saved_model.load('models/trt_model')
+        self.model = tf.saved_model.load('/home/nvidia/ros2_ws/src/loop/autolap/model.trt')
         self.predict = self.model.signatures['serving_default']
        
         # Initialize CV bridge
@@ -21,23 +22,28 @@ class DonkeyTRTNode(Node):
         # ROS2 parameters
         self.declare_parameter('throttle_gain', 0.3)
         self.declare_parameter('input_shape', [120, 160])
-        self.declare_parameter('camera_topic', '/zed2/zed_node/left/image_rect_color')
+        self.declare_parameter('camera_topic', '/zed/zed_node/rgb_raw/image_raw_color')
        
         # Get parameters
         self.throttle = self.get_parameter('throttle_gain').value
         self.input_shape = self.get_parameter('input_shape').value
         camera_topic = self.get_parameter('camera_topic').value
-       
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
+        )
         # Create subscribers/publishers
-        self.sub = self.create_subscription(
+        self.subscription = self.create_subscription(
             Image,
             camera_topic,
             self.image_callback,
-            10
+            qos_profile
         )
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
        
         self.get_logger().info("Node initialized. Waiting for camera images...")
+        #self.image_callback(None)
 
     def preprocess_image(self, cv_image):
         # Resize and normalize
@@ -46,8 +52,12 @@ class DonkeyTRTNode(Node):
         return img
 
     def image_callback(self, msg):
+        #self.get_logger().info("hello")
         try:
             # Convert ROS Image to OpenCV
+
+            self.get_logger().info(f"Steering")
+
             cv_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
            
             # Preprocess
@@ -62,23 +72,16 @@ class DonkeyTRTNode(Node):
             # TensorRT inference
             output = self.predict(input_tensor)
            
-            # Extract steering (adjust output name if needed)
-            steering = output['output_0'].numpy()[0][0]
+            
            
-            # Create and publish command
-            twist = Twist()
-            twist.linear.x = float(self.throttle)
-            twist.angular.z = float(steering)
-            self.cmd_pub.publish(twist)
-           
-            self.get_logger().debug(f"Steering: {steering:.3f}", throttle=30)
+            self.get_logger().info(f"Steering: {output}")
 
         except Exception as e:
             self.get_logger().error(f"Processing error: {str(e)}")
 
 def main(args=None):
     rclpy.init(args=args)
-    node = DonkeyTRTNode()
+    node = MLModel()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

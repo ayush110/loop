@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'DonkeyNode = autolap:MLModel:main',
+            'ml = autolap.MLModel:main'
         ],
     },
 )
