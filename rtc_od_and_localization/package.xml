@@ -25,7 +25,7 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <!-- Execution dependencies -->
-  <!-- <exec_depend>zed_interfaces</exec_depend> -->
-  <!-- <exec_depend>zed_wrapper</exec_depend> -->
-  <exec_depend>zed_msgs</exec_depend>
+  <exec_depend>zed_interfaces</exec_depend>
+  <exec_depend>zed_wrapper</exec_depend>
+  <!-- <exec_depend>zed_msgs</exec_depend> -->
 </package>

@@ -19,8 +19,9 @@ from sensor_msgs.msg import LaserScan
 from builtin_interfaces.msg import Time, Duration
 from tf2_ros import Buffer, TransformListener
 from threading import Thread, Lock
-from zed_msgs.msg import ObjectsStamped # from zed_interfaces.msg import ObjectStamped (FOR USE ON REAL ROBOT)
+from zed_interfaces.msg import ObjectsStamped # (FOR USE ON REAL ROBOT)
 from tf2_geometry_msgs.tf2_geometry_msgs import do_transform_point        
+from visualization_msgs.msg import Marker, MarkerArray
 
 class Detector(Node):
     
@@ -29,8 +30,9 @@ class Detector(Node):
         super().__init__('object_detector')
         #############param declaration ##########################################################
 
-        self.CONV_THRESHOLD = 0.5
+        self.CONF_THRESHOLD = 0.5
         self.MIN_ASSOCIATION_DISTANCE = 0.3 # m
+        self.MARKER_SIZE = 0.2  # cube side length in meters
 
         ################################Data Objects#############################################
         
@@ -46,6 +48,8 @@ class Detector(Node):
 
         # pub to something for constraints if needed
         self.log_pub = self.create_publisher(String, '/detected_objects_log', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, '/detected_objects_markers', 10)
+        self.marker_timer = self.create_timer(1.0, self.publish_detected_objects_markers)
 
         ########################Subcriber#####################################################
 
@@ -65,13 +69,16 @@ class Detector(Node):
     def object_detection_callback(self, msg: ObjectsStamped):
         self.obstacle_mutex.acquire()
         for obj in msg.objects:
-            if obj.label in ['person', 'backpack']: #and obj.tracking_state == 1:  # only if actively tracked
+            if obj.label in ['Person', 'Bag']: #and obj.tracking_state == 1:  # only if actively tracked
                 if obj.confidence < self.CONF_THRESHOLD:
                     self.get_logger().info(f"Detection too low-conf: {obj.confidence}")
                     continue  # skip low-confidence objects
                 
+
                 # Get position in camera frame
                 position = np.array(obj.position)
+
+                self.get_logger().info(f"received objects detection: {obj.label}")
 
                 # Transform to map frame using tf2
                 position_map = self._transform_point_in_map(position)
@@ -123,6 +130,35 @@ class Detector(Node):
             for obj in top3:
                 x, y, z = obj['position']
                 f.write(f"{obj['class']},{x},{y},{z}\n")
+
+    def publish_detected_objects_markers(self):
+        marker_array = MarkerArray()
+        marker_id = 0
+
+        for label, obj_list in self.detected_objects.items():
+            for obj in obj_list:
+                x, y, z = obj['avg_position']
+                marker = Marker()
+                marker.header.frame_id = "map" # TODO: update this to be in the local frame
+                marker.header.stamp = self.get_clock().now().to_msg()
+                marker.ns = label
+                marker.id = marker_id
+                marker.type = Marker.CUBE
+                marker.action = Marker.ADD
+                marker.pose.position.x = x
+                marker.pose.position.y = y
+                marker.pose.position.z = z
+                marker.pose.orientation.w = 1.0  # No rotation
+                marker.scale.x = self.MARKER_SIZE
+                marker.scale.y = self.MARKER_SIZE
+                marker.scale.z = self.MARKER_SIZE
+                marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8) if label == 'person' else ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8)
+                marker.lifetime = Duration(sec=2)  # optional: to remove stale markers
+                marker_array.markers.append(marker)
+                marker_id += 1
+
+        self.marker_pub.publish(marker_array)
+
 
     def publish_top_objects_log(self):
         all_objects = []

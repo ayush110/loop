@@ -54,11 +54,11 @@ def generate_launch_description():
             name='navigation_controller',
             output='screen',
         ),
-        # Node(
-        #     package='obj_det_visualizer',
-        #     executable='obj_visualizer',
-        #     name='obj_visualizer',
-        #     output='screen'
-        # ),
+        Node(
+            package='obj_det_visualizer',
+            executable='obj_visualizer',
+            name='obj_visualizer',
+            output='screen'
+        ),
         OpaqueFunction(function=launch_camera_if_requested)
     ])
