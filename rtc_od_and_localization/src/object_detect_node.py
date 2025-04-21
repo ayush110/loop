@@ -1,57 +1,37 @@
 #!/usr/bin/env python3
 
-
-from math import sqrt, cos, sin, pi, atan2
-from math import pi, log, exp
-
 import numpy as np
 import rclpy
-
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import String, Header, ColorRGBA
-from nav_msgs.msg import OccupancyGrid, MapMetaData, Odometry
-from geometry_msgs.msg import (
-    Twist,
-    PoseStamped,
-    Point,
-    PointStamped,
-    PoseWithCovarianceStamped,
-)
+from rclpy.qos import QoSProfile
+from std_msgs.msg import String, ColorRGBA
+from builtin_interfaces.msg import Duration
+from geometry_msgs.msg import PointStamped, PoseStamped
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
-from builtin_interfaces.msg import Time, Duration
 from tf2_ros import Buffer, TransformListener
-from threading import Thread, Lock
-from zed_interfaces.msg import ObjectsStamped, Object  # (FOR USE ON REAL ROBOT)
 from tf2_geometry_msgs.tf2_geometry_msgs import do_transform_point
 from visualization_msgs.msg import Marker, MarkerArray
+from zed_interfaces.msg import ObjectsStamped, Object
+from threading import Lock
 
 
 class Detector(Node):
-
     def __init__(self):
-
         super().__init__("object_detector")
-        #############param declaration ##########################################################
 
         self.CONF_THRESHOLD = 0.5
-        self.MIN_ASSOCIATION_DISTANCE = 0.3  # m
-        self.MARKER_SIZE = 0.2  # cube side length in meters
-
-        ################################Data Objects#############################################
+        self.MIN_ASSOCIATION_DISTANCE = 0.3  # meters
+        self.MARKER_SIZE = 0.2  # meters
 
         self.SUPPORTED_OBJECTS = ["Person", "Bag"]
-        self.tracked_objects = {}
-        self.detected_objects = {"Person": [], "Bag": []}
+        self.detected_objects = {label: [] for label in self.SUPPORTED_OBJECTS}
         self.obstacle_mutex = Lock()
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        ################################Publisher##################################################
-        # pub to something for constraints if needed
-        self.object_tracks_pub = self.create_publisher(
+        self.obstacle_pub = self.create_publisher(
             ObjectsStamped, "/processed_obstacles", 10
         )
         self.obstacle_timer = self.create_timer(0.5, self.publish_processed_obstacles)
@@ -64,17 +44,14 @@ class Detector(Node):
             1.0, self.publish_detected_objects_markers
         )
 
-        ########################Subcriber#####################################################
-        # sub to zed2
-        self.camera_detector_subscriber = self.create_subscription(
+        self.create_subscription(
             ObjectsStamped,
             "/zed/zed_node/obj_det/objects",
             self.object_detection_callback,
             10,
         )
 
-        # sub to goal reached
-        self.goal_reached_subscriber = self.create_subscription(
+        self.create_subscription(
             PoseStamped, "/goal_reached", self.goal_reached_callback, 10
         )
 
@@ -90,8 +67,7 @@ class Detector(Node):
                 if position_map is None:
                     continue
 
-                self.get_logger().info(f"merging object detection: {obj}")
-
+                self.get_logger().info(f"Merging object detection: {obj.label}")
                 self._merge_static_obstacle(obj.label, position_map, obj.confidence)
 
             self._publish_static_obstacles()
@@ -107,8 +83,8 @@ class Detector(Node):
                 entry["avg_position"] = entry["position_sum"] / entry["count"]
                 return
 
-        # New obstacle
-        self.detected_objects[label].append(
+        # New static object entry
+        obj_list.append(
             {
                 "position_sum": position,
                 "count": 1,
@@ -126,82 +102,27 @@ class Detector(Node):
             for entry in obj_list:
                 obj = Object()
                 obj.label = label
-                obj.position.x = entry["avg_position"][0]
-                obj.position.y = entry["avg_position"][1]
-                obj.position.z = entry["avg_position"][2]
+                obj.position.x, obj.position.y, obj.position.z = entry["avg_position"]
                 obj.confidence = entry["confidence_total"] / entry["count"]
                 output_msg.objects.append(obj)
 
-        self.object_pub.publish(output_msg)
-
-    def _update_object_tracks(self, object_msg: Object, replace=False):
-        if object_msg.confidence < self.CONF_THRESHOLD:
-            self.get_logger().info(f"Detection too low-conf: {object_msg.confidence}")
-            return
-
-        # get obstacle position in map frame
-        position_map = self._transform_point_in_map(object_msg.position)
-        if not position_map:
-            return
-
-        # Replace=True Either we update the tracks with the most recent object info (query by track id)
-        if (
-            replace
-            and object_msg.tracking_available
-            and object_msg.track_id in self.tracked_objects
-        ):
-            # Use track_id to update existing tracked object
-            self.tracked_objects[object_msg.track_id] = {
-                "position": position_map,
-                "label": object_msg.label,
-                "confidence": object_msg.confidence,
-            }
-
-            # if obj.tracking_state == 3: then tracking is terminating, then mature to detected objects
-            return
-
-        # Replace=False, use some sort of tracking method for static objects based on distance
-        # Check if object_msg of same class is already stored
-        obj_list = self.detected_objects[object_msg.label]
-        for object_msg in obj_list:
-            dist = np.linalg.norm(object_msg["avg_position"] - position_map)
-            if dist < self.MIN_ASSOCIATION_DISTANCE:
-                object_msg["position_sum"] += position_map
-                object_msg["confidence_total"] += object_msg.confidence
-                object_msg["count"] += 1
-                object_msg["avg_position"] = (
-                    object_msg["position_sum"] / object_msg["count"]
-                )
-                return
-
-        # No nearby object_msg found, create new entry
-        self.tracked_objects[object_msg.label].append(
-            {
-                "position_sum": position_map,
-                "count": 1,
-                "avg_position": position_map,
-                "confidence_total": object_msg.confidence,
-            }
-        )
+        self.obstacle_pub.publish(output_msg)
 
     def goal_reached_callback(self, msg):
-        # now we need to write to csv 3 objects, class, position
         all_objects = []
-        for label, obj_list in self.tracked_objects.items():
+        for label, obj_list in self.detected_objects.items():
             for obj in obj_list:
                 all_objects.append(
                     {
                         "class": label,
                         "position": obj["avg_position"],
-                        "confidence": obj["confidence_total"],
+                        "confidence": obj["confidence_total"] / obj["count"],
                     }
                 )
 
-        # Sort by confidence and pick top 3
         all_objects.sort(key=lambda x: -x["confidence"])
         top3 = all_objects[:3]
 
-        # Write to CSV
         with open("detected_objects.csv", "w") as f:
             f.write("class,x,y,z\n")
             for obj in top3:
@@ -231,7 +152,7 @@ class Detector(Node):
                 marker.scale.z = self.MARKER_SIZE
                 marker.color = (
                     ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8)
-                    if label == "person"
+                    if label == "Person"
                     else ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8)
                 )
                 marker.lifetime = Duration(sec=2)
@@ -239,29 +160,6 @@ class Detector(Node):
                 marker_id += 1
 
         self.marker_pub.publish(marker_array)
-
-    def publish_top_objects_log(self):
-        all_objects = []
-        for label, obj_list in self.detected_objects.items():
-            for obj in obj_list:
-                avg_confidence = obj["confidence_total"] / obj["count"]
-                all_objects.append(
-                    {
-                        "class": label,
-                        "position": obj["avg_position"],
-                        "confidence": avg_confidence,
-                    }
-                )
-
-        all_objects.sort(key=lambda x: -x["confidence"])
-        top3 = all_objects[:3]
-
-        log_msg = "Top Detected Objects:\n"
-        for i, obj in enumerate(top3):
-            x, y, z = obj["position"]
-            log_msg += f"{i+1}) {obj['class']} at ({x:.2f}, {y:.2f}, {z:.2f}) with confidence {obj['confidence']:.2f}\n"
-
-        self.log_pub.publish(String(data=log_msg))
 
     def _transform_point_in_map(
         self, point, from_frame="zed_camera_center", to_frame="map"
@@ -290,12 +188,10 @@ class Detector(Node):
 
 
 def main(args=None):
-
     rclpy.init(args=args)
     node = Detector()
-
     rclpy.spin(node)
-    node.node.destroy_node()
+    node.destroy_node()
     rclpy.shutdown()
 
 
