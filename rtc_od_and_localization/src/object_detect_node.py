@@ -117,7 +117,7 @@ class Detector(Node):
             }
         )
 
-    def _publish_static_obstacles(self):
+    def publish_processed_obstacles(self):
         output_msg = ObjectsStamped()
         output_msg.header.stamp = self.get_clock().now().to_msg()
         output_msg.header.frame_id = "map"
