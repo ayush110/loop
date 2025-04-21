@@ -7,44 +7,44 @@ from rclpy.qos import QoSProfile
 from nav_msgs.msg import Odometry
 import math
 import tf2_ros
+import tf_transformations
 
 
-class GoalNavigationNode(Node):
+class BicycleModelNavigationNode(Node):
 
     def __init__(self):
-        super().__init__('goal_navigation_node')
+        super().__init__("bicycle_model_navigation_node")
 
         # Parameters for controlling the robot
         self.goal_tolerance = 0.3  # 30 cm tolerance
-        self.kp = 0.5  # Proportional constant for PID or simple controller
+        self.kp = 0.5  # Proportional constant for the PID controller
         self.max_speed = 0.5  # Max linear speed in m/s
         self.max_angular_velocity = 1.0  # Max angular velocity in rad/s
+        self.robot_length = (
+            0.5  # Length of the robot (distance between front and rear axles)
+        )
 
         # Subscribers
         self.goal_subscriber = self.create_subscription(
-            PoseStamped,
-            '/goal_pose',
-            self.goal_pose_callback,
-            QoSProfile(depth=10)
+            PoseStamped, "/goal_pose", self.goal_pose_callback, QoSProfile(depth=10)
         )
 
         # Odometry subscriber (using RTAB-Map or any localization)
         self.odom_subscriber = self.create_subscription(
-            Odometry,
-            '/odom',
-            self.odom_callback,
-            QoSProfile(depth=10)
+            Odometry, "/odom", self.odom_callback, QoSProfile(depth=10)
         )
 
         self.obstacle_subscriber = self.create_subscription(
-            Point,
-            '/obstacle_data',
-            self.obstacle_callback,
-            QoSProfile(depth=10)
+            Point, "/obstacle_data", self.obstacle_callback, QoSProfile(depth=10)
         )
 
         # Publisher for movement commands (Twist)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', QoSProfile(depth=10))
+        self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", QoSProfile(depth=10))
+
+        # Publisher for goal completed
+        self.goal_completed_pub = self.create_publisher(
+            PoseStamped, "/goal_completed", QoSProfile(depth=10)
+        )
 
         # TF listener to get the robot’s pose (from RTAB-Map or other localization system)
         self.tf_buffer = tf2_ros.Buffer()
@@ -58,18 +58,27 @@ class GoalNavigationNode(Node):
         self.obstacles = []
 
     def goal_pose_callback(self, msg: PoseStamped):
-        self.get_logger().info(f"Received goal pose: {msg.pose.position.x}, {msg.pose.position.y}")
+        self.get_logger().info(
+            f"Received goal pose: {msg.pose.position.x}, {msg.pose.position.y}"
+        )
         self.goal_pose = msg
 
     def odom_callback(self, msg: Odometry):
+        # dont need this i think since we have a node just for localization
+        # we can execute navigation on a timer
         self.current_pose = msg.pose.pose
         if self.goal_pose is not None:
             self.navigate_to_goal()
 
     def obstacle_callback(self, msg: Point):
         # received every time we have a new obstacle
+        # use this to update the obstacle list
+        self.get_logger().info(f"Received updated obstacle data: {msg.x}, {msg.y}")
         self.obstacles = self.process_obstacle_data(msg)
 
+    def process_obstacle_data(self, msg: Point):
+        # Convert obstacle point to a list of obstacles with (x, y) coordinates
+        pass
 
     def navigate_to_goal(self):
         if self.current_pose is None or self.goal_pose is None:
@@ -82,7 +91,7 @@ class GoalNavigationNode(Node):
         goal_y = self.goal_pose.pose.position.y
 
         # Calculate the distance to the goal
-        distance = math.sqrt((goal_x - current_x)**2 + (goal_y - current_y)**2)
+        distance = math.sqrt((goal_x - current_x) ** 2 + (goal_y - current_y) ** 2)
 
         # If we're within tolerance, stop
         if distance < self.goal_tolerance:
@@ -100,7 +109,7 @@ class GoalNavigationNode(Node):
         for obstacle in self.obstacles:
             obs_x, obs_y = obstacle
             # Calculate the distance to the obstacle
-            dist_to_obs = math.sqrt((obs_x - current_x)**2 + (obs_y - current_y)**2)
+            dist_to_obs = math.sqrt((obs_x - current_x) ** 2 + (obs_y - current_y) ** 2)
 
             # If the obstacle is within a critical distance (e.g., 1 meter), adjust steering
             if dist_to_obs < 1.0:  # 1 meter threshold
@@ -108,10 +117,14 @@ class GoalNavigationNode(Node):
                 angle_to_obs = math.atan2(obs_y - current_y, obs_x - current_x)
 
                 # Calculate steering adjustment: If obstacle is near, steer away
-                angular_velocity += 1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
+                angular_velocity += (
+                    1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
+                )
 
         # Apply some damping to prevent oscillations
-        angular_velocity = max(min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity)
+        angular_velocity = max(
+            min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity
+        )
 
         # Calculate linear speed to goal (keep it proportional)
         linear_speed = min(self.kp * distance, self.max_speed)
@@ -133,7 +146,10 @@ class GoalNavigationNode(Node):
         return euler[2]  # yaw angle
 
     def _quaternion_to_euler(self, quaternion):
-        pass
+        """Convert quaternion to Euler angles (roll, pitch, yaw)."""
+        return tf_transformations.euler_from_quaternion(
+            [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+        )
 
     def _stop_robot(self):
         """Send a stop command to the robot."""
@@ -143,7 +159,7 @@ class GoalNavigationNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GoalNavigationNode()
+    node = BicycleModelNavigationNode()
 
     try:
         rclpy.spin(node)
@@ -154,5 +170,5 @@ def main(args=None):
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
