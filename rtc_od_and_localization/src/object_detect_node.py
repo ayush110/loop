@@ -102,8 +102,8 @@ class Detector(Node):
             for entry in obj_list:
                 obj = Object()
                 obj.label = label
-                obj.position = entry["avg_position"].astype(np.float32)
-                obj.confidence = entry["confidence_total"] / entry["count"]
+                obj.position = np.array(entry["avg_position"], dtype=np.float32)
+                obj.confidence = float(entry["confidence_total"] / entry["count"])
                 output_msg.objects.append(obj)
 
         self.obstacle_pub.publish(output_msg)
@@ -143,9 +143,9 @@ class Detector(Node):
                 marker.id = marker_id
                 marker.type = Marker.CUBE
                 marker.action = Marker.ADD
-                marker.pose.position.x = x
-                marker.pose.position.y = y
-                marker.pose.position.z = z
+                marker.pose.position.x = float(x)
+                marker.pose.position.y = float(y)
+                marker.pose.position.z = float(z)
                 marker.pose.orientation.w = 1.0
                 marker.scale.x = self.MARKER_SIZE
                 marker.scale.y = self.MARKER_SIZE
@@ -179,7 +179,8 @@ class Detector(Node):
 
             transformed = do_transform_point(point_stamped, trans)
             return np.array(
-                [transformed.point.x, transformed.point.y, transformed.point.z]
+                [transformed.point.x, transformed.point.y, transformed.point.z],
+                dtype=np.float32,
             )
 
         except Exception as e:
