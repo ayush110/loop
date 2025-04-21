@@ -71,11 +71,13 @@ class BicycleModelNavigationNode(Node):
         if self.goal_pose is not None:
             self.navigate_to_goal()
 
-    def obstacle_callback(self, msg: Point):
+    def obstacle_callback(self, msg: ObjectsStamped):
         # received every time we have a new obstacle
         # use this to update the obstacle list
-        self.get_logger().info(f"Received updated obstacle data: {msg.x}, {msg.y}")
         self.obstacles = self.process_obstacle_data(msg)
+
+        if not self.obstacles:
+            return
 
         self.update_current_pose_from_tf()
 
