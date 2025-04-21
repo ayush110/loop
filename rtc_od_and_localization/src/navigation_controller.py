@@ -9,6 +9,8 @@ import math
 import tf2_ros
 import tf_transformations
 
+from zed_interfaces.msg import ObjectsStamped  # (FOR USE ON REAL ROBOT)
+
 
 class BicycleModelNavigationNode(Node):
 
@@ -29,14 +31,15 @@ class BicycleModelNavigationNode(Node):
             PoseStamped, "/goal_pose", self.goal_pose_callback, QoSProfile(depth=10)
         )
 
-        # Odometry subscriber (using RTAB-Map or any localization)
-        self.odom_subscriber = self.create_subscription(
-            Odometry, "/odom", self.odom_callback, QoSProfile(depth=10)
+        self.obstacle_subscriber = self.create_subscription(
+            ObjectsStamped,
+            "/processed_obstacles",
+            self.obstacle_callback,
+            QoSProfile(depth=10),
         )
 
-        self.obstacle_subscriber = self.create_subscription(
-            Point, "/obstacle_data", self.obstacle_callback, QoSProfile(depth=10)
-        )
+        # Timer for regular replanning (e.g., every 0.2 seconds)
+        self.timer = self.create_timer(0.2, self.timer_callback)
 
         # Publisher for movement commands (Twist)
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", QoSProfile(depth=10))
@@ -63,10 +66,8 @@ class BicycleModelNavigationNode(Node):
         )
         self.goal_pose = msg
 
-    def odom_callback(self, msg: Odometry):
-        # dont need this i think since we have a node just for localization
-        # we can execute navigation on a timer
-        self.current_pose = msg.pose.pose
+    def timer_callback(self):
+        self.update_current_pose_from_tf()
         if self.goal_pose is not None:
             self.navigate_to_goal()
 
@@ -76,9 +77,32 @@ class BicycleModelNavigationNode(Node):
         self.get_logger().info(f"Received updated obstacle data: {msg.x}, {msg.y}")
         self.obstacles = self.process_obstacle_data(msg)
 
-    def process_obstacle_data(self, msg: Point):
+        self.update_current_pose_from_tf()
+
+        if self.goal_pose is not None:
+            self.navigate_to_goal()
+
+    def process_obstacle_data(self, msg: ObjectsStamped):
         # Convert obstacle point to a list of obstacles with (x, y) coordinates
-        pass
+        obstacles = []
+        for obj in msg.objects:
+            obstacles.append((obj.position.x, obj.position.y))
+        return obstacles
+
+    def update_current_pose_from_tf(self):
+        try:
+            trans = self.tf_buffer.lookup_transform(
+                "map", "zed_camera_center", rclpy.time.Time()
+            )
+            pose = PoseStamped()
+            pose.pose.position.x = trans.transform.translation.x
+            pose.pose.position.y = trans.transform.translation.y
+            pose.pose.position.z = trans.transform.translation.z
+            pose.pose.orientation = trans.transform.rotation
+            self.current_pose = pose.pose
+        except Exception as e:
+            self.get_logger().warn(f"Failed to get transform: {str(e)}")
+            self.current_pose = None
 
     def navigate_to_goal(self):
         if self.current_pose is None or self.goal_pose is None:

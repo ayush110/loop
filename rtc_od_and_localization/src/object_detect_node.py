@@ -51,7 +51,10 @@ class Detector(Node):
 
         ################################Publisher##################################################
         # pub to something for constraints if needed
-        self.object_tracks_pub = self.create_publisher(Point, "/tracked_objects", 10)
+        self.object_tracks_pub = self.create_publisher(
+            ObjectsStamped, "/processed_obstacles", 10
+        )
+        self.obstacle_timer = self.create_timer(0.5, self.publish_processed_obstacles)
 
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
         self.marker_pub = self.create_publisher(
@@ -76,15 +79,60 @@ class Detector(Node):
         )
 
     def object_detection_callback(self, msg: ObjectsStamped):
-        self.obstacle_mutex.acquire()
-        for obj in msg.objects:
-            if obj.label in self.SUPPORTED_OBJECTS:  # and obj.tracking_state == 1:
-                self.get_logger().info(f"received objects detection: {obj}")
+        with self.obstacle_mutex:
+            for obj in msg.objects:
+                if obj.label not in self.SUPPORTED_OBJECTS:
+                    continue
+                if obj.confidence < self.CONF_THRESHOLD:
+                    continue
 
-                # TODO: try with both replace=True and False
-                self._update_object_tracks(obj, replace=True)
+                position_map = self._transform_point_in_map(obj.position)
+                if position_map is None:
+                    continue
 
-        self.obstacle_mutex.release()
+                self.get_logger().info(f"merging object detection: {obj}")
+
+                self._merge_static_obstacle(obj.label, position_map, obj.confidence)
+
+            self._publish_static_obstacles()
+
+    def _merge_static_obstacle(self, label, position, confidence):
+        obj_list = self.detected_objects[label]
+        for entry in obj_list:
+            dist = np.linalg.norm(entry["avg_position"] - position)
+            if dist < self.MIN_ASSOCIATION_DISTANCE:
+                entry["position_sum"] += position
+                entry["confidence_total"] += confidence
+                entry["count"] += 1
+                entry["avg_position"] = entry["position_sum"] / entry["count"]
+                return
+
+        # New obstacle
+        self.detected_objects[label].append(
+            {
+                "position_sum": position,
+                "count": 1,
+                "avg_position": position,
+                "confidence_total": confidence,
+            }
+        )
+
+    def _publish_static_obstacles(self):
+        output_msg = ObjectsStamped()
+        output_msg.header.stamp = self.get_clock().now().to_msg()
+        output_msg.header.frame_id = "map"
+
+        for label, obj_list in self.detected_objects.items():
+            for entry in obj_list:
+                obj = Object()
+                obj.label = label
+                obj.position.x = entry["avg_position"][0]
+                obj.position.y = entry["avg_position"][1]
+                obj.position.z = entry["avg_position"][2]
+                obj.confidence = entry["confidence_total"] / entry["count"]
+                output_msg.objects.append(obj)
+
+        self.object_pub.publish(output_msg)
 
     def _update_object_tracks(self, object_msg: Object, replace=False):
         if object_msg.confidence < self.CONF_THRESHOLD:
@@ -108,6 +156,8 @@ class Detector(Node):
                 "label": object_msg.label,
                 "confidence": object_msg.confidence,
             }
+
+            # if obj.tracking_state == 3: then tracking is terminating, then mature to detected objects
             return
 
         # Replace=False, use some sort of tracking method for static objects based on distance
@@ -162,13 +212,11 @@ class Detector(Node):
         marker_array = MarkerArray()
         marker_id = 0
 
-        for label, obj_list in self.tracked_objects.items():
+        for label, obj_list in self.detected_objects.items():
             for obj in obj_list:
                 x, y, z = obj["avg_position"]
                 marker = Marker()
-                marker.header.frame_id = (
-                    "map"  # TODO: update this to be in the local frame
-                )
+                marker.header.frame_id = "map"
                 marker.header.stamp = self.get_clock().now().to_msg()
                 marker.ns = label
                 marker.id = marker_id
@@ -177,7 +225,7 @@ class Detector(Node):
                 marker.pose.position.x = x
                 marker.pose.position.y = y
                 marker.pose.position.z = z
-                marker.pose.orientation.w = 1.0  # No rotation
+                marker.pose.orientation.w = 1.0
                 marker.scale.x = self.MARKER_SIZE
                 marker.scale.y = self.MARKER_SIZE
                 marker.scale.z = self.MARKER_SIZE
@@ -186,7 +234,7 @@ class Detector(Node):
                     if label == "person"
                     else ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8)
                 )
-                marker.lifetime = Duration(sec=2)  # optional: to remove stale markers
+                marker.lifetime = Duration(sec=2)
                 marker_array.markers.append(marker)
                 marker_id += 1
 
@@ -194,13 +242,14 @@ class Detector(Node):
 
     def publish_top_objects_log(self):
         all_objects = []
-        for label, obj_list in self.tracked_objects.items():
+        for label, obj_list in self.detected_objects.items():
             for obj in obj_list:
+                avg_confidence = obj["confidence_total"] / obj["count"]
                 all_objects.append(
                     {
                         "class": label,
                         "position": obj["avg_position"],
-                        "confidence": obj["confidence_total"],
+                        "confidence": avg_confidence,
                     }
                 )
 
