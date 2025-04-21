@@ -70,7 +70,7 @@ class Detector(Node):
                 self.get_logger().info(f"Merging object detection: {obj.label}")
                 self._merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-            self._publish_static_obstacles()
+            self.publish_processed_obstacles()
 
     def _merge_static_obstacle(self, label, position, confidence):
         obj_list = self.detected_objects[label]
@@ -102,7 +102,7 @@ class Detector(Node):
             for entry in obj_list:
                 obj = Object()
                 obj.label = label
-                obj.position.x, obj.position.y, obj.position.z = entry["avg_position"]
+                obj.position = entry["avg_position"].astype(np.float32)
                 obj.confidence = entry["confidence_total"] / entry["count"]
                 output_msg.objects.append(obj)
 
@@ -173,9 +173,9 @@ class Detector(Node):
             point_stamped = PointStamped()
             point_stamped.header.stamp = now.to_msg()
             point_stamped.header.frame_id = from_frame
-            point_stamped.point.x = point[0]
-            point_stamped.point.y = point[1]
-            point_stamped.point.z = point[2]
+            point_stamped.point.x = float(point[0])
+            point_stamped.point.y = float(point[1])
+            point_stamped.point.z = float(point[2])
 
             transformed = do_transform_point(point_stamped, trans)
             return np.array(
