@@ -21,7 +21,7 @@ class BicycleModelNavigationNode(Node):
         self.goal_tolerance = 0.3  # 30 cm tolerance
         self.kp = 0.5  # Proportional constant for the PID controller
         self.max_speed = 0.5  # Max linear speed in m/s
-        self.max_angular_velocity = 1.0  # Max angular velocity in rad/s
+        self.max_angular_velocity = 0.2  # Max angular velocity in rad/s
         self.robot_length = (
             0.5  # Length of the robot (distance between front and rear axles)
         )
