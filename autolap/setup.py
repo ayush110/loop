@@ -21,6 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'ml = autolap.MLModel:main'
+            'lanedetection = autolap.LaneDetectionNode:main'
+            'lanedetectionOpenCV = autolap.LaneDetectionOpenCV:main'
         ],
     },
 )
