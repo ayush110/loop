@@ -46,7 +46,7 @@ class BicycleModelNavigationNode(Node):
 
         # Publisher for goal completed
         self.goal_completed_pub = self.create_publisher(
-            PoseStamped, "/goal_completed", QoSProfile(depth=10)
+            PoseStamped, "/goal_reached", QoSProfile(depth=10)
         )
 
         # TF listener to get the robot’s pose (from RTAB-Map or other localization system)
@@ -122,6 +122,7 @@ class BicycleModelNavigationNode(Node):
         # If we're within tolerance, stop
         if distance < self.goal_tolerance:
             self.get_logger().info("Goal reached!")
+            self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
             return
 
