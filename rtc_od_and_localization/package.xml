@@ -27,7 +27,7 @@
   <!-- Execution dependencies -->
   <exec_depend>zed_interfaces</exec_depend>
   <exec_depend>zed_wrapper</exec_depend>
-  <exec_depend>tf_transformations</exec_depend>
+  <!-- <exec_depend>tf_transformations</exec_depend> -->
 
   <!-- <exec_depend>zed_msgs</exec_depend> -->
 </package>

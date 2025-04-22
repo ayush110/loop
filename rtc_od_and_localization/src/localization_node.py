@@ -35,7 +35,7 @@ class Localization(Node):
         # Set header for the transform
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = "map"  # The parent frame is 'map'
-        t.child_frame_id = "zed_camera_center"  # Set this to the camera frame
+        t.child_frame_id = "base_link"  # Set this to the camera frame
 
         # Set the translation and rotation from the pose message
         t.transform.translation.x = translation.x

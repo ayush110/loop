@@ -79,7 +79,7 @@ class MLModel(Node):
             throttle = float(output['n_outputs1'].numpy()[0][0])
             steering = float(output['n_outputs0'].numpy()[0][0])
 
-            STEERING_OFFSET = 0.00  # Tune this 
+            STEERING_OFFSET = -0.00  # Tune this 
             steering += STEERING_OFFSET
 
             # Smooth using exponential moving average
@@ -95,7 +95,7 @@ class MLModel(Node):
             # Publish Twist message
             twist_msg = Twist()
             twist_msg.linear.x = throttle
-            twist_msg.angular.z = steering
+            twist_msg.angular.z = -steering / 3.0
             self.cmd_pub.publish(twist_msg)
             
         except Exception as e:

@@ -20,7 +20,7 @@ class Detector(Node):
     def __init__(self):
         super().__init__("object_detector")
 
-        self.CONF_THRESHOLD = 0.5
+        self.CONF_THRESHOLD = 0.3
         self.MIN_ASSOCIATION_DISTANCE = 0.3  # meters
         self.MARKER_SIZE = 0.2  # meters
 
