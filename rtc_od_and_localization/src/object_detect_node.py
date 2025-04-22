@@ -24,7 +24,7 @@ class Detector(Node):
         self.MIN_ASSOCIATION_DISTANCE = 0.3  # meters
         self.MARKER_SIZE = 0.2  # meters
 
-        self.SUPPORTED_OBJECTS = ["Person", "Bag"]
+        self.SUPPORTED_OBJECTS = ["Person", "Vehicle"]
         self.detected_objects = {label: [] for label in self.SUPPORTED_OBJECTS}
         self.obstacle_mutex = Lock()
 
