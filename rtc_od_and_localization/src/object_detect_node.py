@@ -109,55 +109,93 @@ class Detector(Node):
         self.obstacle_pub.publish(output_msg)
 
     def goal_reached_callback(self, msg):
-        all_objects = []
-        for label, obj_list in self.detected_objects.items():
-            for obj in obj_list:
-                all_objects.append(
+        filtered_objects = []
+
+        # Get top 1 Car
+        if "Car" in self.detected_objects:
+            cars = sorted(
+                self.detected_objects["Car"],
+                key=lambda o: -(o["confidence_total"] / o["count"]),
+            )
+            if cars:
+                car = cars[0]
+                filtered_objects.append(
                     {
-                        "class": label,
-                        "position": obj["avg_position"],
-                        "confidence": obj["confidence_total"] / obj["count"],
+                        "class": "Car",
+                        "position": car["avg_position"],
+                        "confidence": car["confidence_total"] / car["count"],
                     }
                 )
 
-        all_objects.sort(key=lambda x: -x["confidence"])
-        top3 = all_objects[:3]
+        # Get top 2 People
+        if "Person" in self.detected_objects:
+            people = sorted(
+                self.detected_objects["Person"],
+                key=lambda o: -(o["confidence_total"] / o["count"]),
+            )
+            for person in people[:2]:
+                filtered_objects.append(
+                    {
+                        "class": "Person",
+                        "position": person["avg_position"],
+                        "confidence": person["confidence_total"] / person["count"],
+                    }
+                )
 
         with open("detected_objects.csv", "w") as f:
             f.write("class,x,y,z\n")
-            for obj in top3:
+            for obj in filtered_objects:
                 x, y, z = obj["position"]
                 f.write(f"{obj['class']},{x},{y},{z}\n")
 
     def publish_detected_objects_markers(self):
         marker_array = MarkerArray()
         marker_id = 0
+        selected_objects = []
 
-        for label, obj_list in self.detected_objects.items():
-            for obj in obj_list:
-                x, y, z = obj["avg_position"]
-                marker = Marker()
-                marker.header.frame_id = "map"
-                marker.header.stamp = self.get_clock().now().to_msg()
-                marker.ns = label
-                marker.id = marker_id
-                marker.type = Marker.CUBE
-                marker.action = Marker.ADD
-                marker.pose.position.x = float(x)
-                marker.pose.position.y = float(y)
-                marker.pose.position.z = float(z)
-                marker.pose.orientation.w = 1.0
-                marker.scale.x = self.MARKER_SIZE
-                marker.scale.y = self.MARKER_SIZE
-                marker.scale.z = self.MARKER_SIZE
-                marker.color = (
-                    ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8)
-                    if label == "Person"
-                    else ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8)
-                )
-                marker.lifetime = Duration(sec=2)
-                marker_array.markers.append(marker)
-                marker_id += 1
+        # Top 1 Car
+        if "Car" in self.detected_objects:
+            cars = sorted(
+                self.detected_objects["Car"],
+                key=lambda o: -(o["confidence_total"] / o["count"]),
+            )
+            if cars:
+                selected_objects.append(("Car", cars[0]["avg_position"]))
+
+        # Top 2 People
+        if "Person" in self.detected_objects:
+            people = sorted(
+                self.detected_objects["Person"],
+                key=lambda o: -(o["confidence_total"] / o["count"]),
+            )
+            for person in people[:2]:
+                selected_objects.append(("Person", person["avg_position"]))
+
+        # Publish only selected markers
+        for label, position in selected_objects:
+            x, y, z = position
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = label
+            marker.id = marker_id
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.pose.position.x = float(x)
+            marker.pose.position.y = float(y)
+            marker.pose.position.z = float(z)
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = self.MARKER_SIZE
+            marker.scale.y = self.MARKER_SIZE
+            marker.scale.z = self.MARKER_SIZE
+            marker.color = (
+                ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8)  # green for Person
+                if label == "Person"
+                else ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8)  # blue for Car
+            )
+            marker.lifetime = Duration(sec=2)
+            marker_array.markers.append(marker)
+            marker_id += 1
 
         self.marker_pub.publish(marker_array)
 
