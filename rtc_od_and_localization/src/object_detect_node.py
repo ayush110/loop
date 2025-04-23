@@ -72,7 +72,7 @@ class Detector(Node):
 
                 position_map = self._transform_point_in_map(obj.position)
                 if position_map is None:
-                    continue
+                    return
 
                 self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
@@ -237,9 +237,9 @@ class Detector(Node):
             marker.scale.y = self.MARKER_SIZE
             marker.scale.z = self.MARKER_SIZE
             marker.color = (
-                ColorRGBA(r=0.0, g=1.0, b=0.0, a=confidence)  # green for Person
+                ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)  # green for Person
                 if label == "Person"
-                else ColorRGBA(r=0.0, g=0.0, b=1.0, a=confidence)  # blue for Car
+                else ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)  # blue for Car
             )
             marker.lifetime = Duration(sec=2)
             marker_array.markers.append(marker)
@@ -248,10 +248,10 @@ class Detector(Node):
         self.marker_pub.publish(marker_array)
 
     def _transform_point_in_map(
-        self, point, from_frame="zed_camera_center", to_frame="map"
+        self, point, from_frame="base_link", to_frame="map"
     ):
         try:
-            now = rclpy.time.Time()
+            now = rclpy.time.Time(seconds=0)
             trans = self.tf_buffer.lookup_transform(
                 to_frame, from_frame, now, timeout=rclpy.duration.Duration(seconds=0.5)
             )
