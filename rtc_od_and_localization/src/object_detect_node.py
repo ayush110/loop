@@ -15,12 +15,14 @@ from visualization_msgs.msg import Marker, MarkerArray
 from zed_interfaces.msg import ObjectsStamped, Object
 from threading import Lock
 
+from itertools import combinations
+
 
 class Detector(Node):
     def __init__(self):
         super().__init__("object_detector")
 
-        self.CONF_THRESHOLD = 0.5
+        self.CONF_THRESHOLD = 20.0
         self.MIN_ASSOCIATION_DISTANCE = 0.8  # meters
         self.MAX_VIEW_DISTANCE = 3
         self.MARKER_SIZE = 0.5  # meters
@@ -35,14 +37,13 @@ class Detector(Node):
         self.obstacle_pub = self.create_publisher(
             ObjectsStamped, "/processed_obstacles", 10
         )
-        self.obstacle_timer = self.create_timer(0.5, self.published_unfiltered_obstacles)
+        # self.obstacle_timer = self.create_timer(
+        #     0.5, self.published_unfiltered_obstacles
+        # )
 
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
         self.marker_pub = self.create_publisher(
             MarkerArray, "/detected_objects_markers", 10
-        )
-        self.marker_timer = self.create_timer(
-            1.0, self.publish_detected_objects_markers
         )
 
         self.create_subscription(
@@ -62,25 +63,31 @@ class Detector(Node):
                 if obj.label not in self.SUPPORTED_OBJECTS:
                     continue
                 if obj.confidence < self.CONF_THRESHOLD:
-                    self.get_logger().info(f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}")
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
+                    )
                     continue
 
                 distance_from_camera = np.linalg.norm(obj.position)
                 if distance_from_camera > self.MAX_VIEW_DISTANCE:
-                    self.get_logger().info(f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}")
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
+                    )
                     continue
 
                 position_map = self._transform_point_in_map(obj.position)
-                if position_map is None:
+                if not position_map or np.isnan(position_map).any():
                     continue
 
-                self.get_logger().info(f"Merging object detection: {obj.label}")
+                self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-                self.detected_objects = self.non_maximum_suppression(self.detected_objects, self.MIN_ASSOCIATION_DISTANCE)
-
+                self.detected_objects = self.non_maximum_suppression(
+                    self.detected_objects
+                )
 
             # change to either publish all received objects or just the best ones
+            self.publish_detected_objects_markers()
             self.published_unfiltered_obstacles()
 
     def merge_static_obstacle(self, label, position, confidence):
@@ -93,27 +100,28 @@ class Detector(Node):
                 entry["position_sum"] += position
                 entry["confidence_total"] += confidence
                 entry["count"] += 1
+
+                entry["confidence"] = float(entry["confidence_total"] / entry["count"])
                 entry["avg_position"] = entry["position_sum"] / entry["count"]
                 return
 
         # No close object found, create new one
-        obj_list.append({
-            "position_sum": np.array(position),
-            "avg_position": np.array(position),
-            "count": 1,
-            "confidence_total": confidence
-        })
+        obj_list.append(
+            {
+                "position_sum": np.array(position, dtype=np.float32),
+                "avg_position": np.array(position, dtype=np.float32),
+                "count": 1,
+                "confidence_total": confidence,
+                "confidence": confidence,
+            }
+        )
 
-    def non_maximum_suppression(self, objects_by_label, suppression_radius):
+    def non_maximum_suppression(self, objects_by_label):
         final_objects = {}
 
         for label, objects in objects_by_label.items():
             if not objects:
                 continue
-
-            # Add confidence as separate field for convenience
-            for obj in objects:
-                obj["confidence"] = obj["confidence_total"] / obj["count"]
 
             # Sort by confidence descending
             sorted_objects = sorted(objects, key=lambda o: -o["confidence"])
@@ -125,54 +133,88 @@ class Detector(Node):
 
                 # Remove all others that are too close to `current`
                 sorted_objects = [
-                    o for o in sorted_objects
-                    if np.linalg.norm(o["avg_position"] - current["avg_position"]) >= suppression_radius
+                    o
+                    for o in sorted_objects
+                    if np.linalg.norm(o["avg_position"] - current["avg_position"])
+                    >= self.MIN_ASSOCIATION_DISTANCE
                 ]
 
             final_objects[label] = kept
 
         return final_objects
 
-
     def goal_reached_callback(self, msg):
-        filtered_objects = []
-
-        # Get top 1 Car
-        if "Car" in self.detected_objects:
-            cars = sorted(
-                self.detected_objects["Car"],
-                key=lambda o: -(o["confidence_total"] / o["count"]),
-            )
-            if cars:
-                car = cars[0]
-                filtered_objects.append(
-                    {
-                        "class": "Car",
-                        "position": car["avg_position"],
-                        "confidence": car["confidence_total"] / car["count"],
-                    }
-                )
-
-        # Get top 2 People
-        if "Person" in self.detected_objects:
-            people = sorted(
-                self.detected_objects["Person"],
-                key=lambda o: -(o["confidence_total"] / o["count"]),
-            )
-            for person in people[:2]:
-                filtered_objects.append(
-                    {
-                        "class": "Person",
-                        "position": person["avg_position"],
-                        "confidence": person["confidence_total"] / person["count"],
-                    }
-                )
+        # now filter_top_3() returns exactly what we need for CSV
+        filtered_objects = self.filter_top_3()
 
         with open("detected_objects.csv", "w") as f:
             f.write("class,x,y,z\n")
             for obj in filtered_objects:
                 x, y, z = obj["position"]
-                f.write(f"{obj['class']},{x},{y},{z}\n")
+                f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+
+    def filter_top_3(self):
+        people = self.detected_objects.get("Person", [])
+        vehicles = self.detected_objects.get("Vehicle", [])
+
+        # Fallback: not enough to do 2P+1V?  Return top-3 by confidence across all.
+        if len(people) < 2 or len(vehicles) < 1:
+            all_objs = []
+            for label, entries in self.detected_objects.items():
+                for e in entries:
+                    all_objs.append(
+                        {
+                            "class": label,
+                            "position": e["avg_position"],
+                            "confidence": e["confidence"],
+                        }
+                    )
+            # just pick the top-3 by confidence
+            return sorted(all_objs, key=lambda o: -o["confidence"])[:3]
+
+        best_score = (-1.0, -1.0)  # (min_pairwise_dist, total_confidence)
+        best_triple = None
+
+        # Brute-force every (2 people, 1 vehicle) combination
+        for p1, p2 in combinations(people, 2):
+            pos1 = np.array(p1["avg_position"])
+            pos2 = np.array(p2["avg_position"])
+            for v in vehicles:
+                pos_v = np.array(v["avg_position"])
+
+                # compute the three pairwise distances
+                d12 = np.linalg.norm(pos1 - pos2)
+                d1v = np.linalg.norm(pos1 - pos_v)
+                d2v = np.linalg.norm(pos2 - pos_v)
+                min_dist = min(d12, d1v, d2v)
+
+                # tie-breaker: sum of confidences
+                total_conf = p1["confidence"] + p2["confidence"] + v["confidence"]
+
+                score = (min_dist, total_conf)
+                if score > best_score:
+                    best_score = score
+                    best_triple = (p1, p2, v)
+
+        # Unpack into simple dicts for CSV
+        p1, p2, v = best_triple
+        return [
+            {
+                "class": "Person",
+                "position": p1["avg_position"],
+                "confidence": p1["confidence"],
+            },
+            {
+                "class": "Person",
+                "position": p2["avg_position"],
+                "confidence": p2["confidence"],
+            },
+            {
+                "class": "Vehicle",
+                "position": v["avg_position"],
+                "confidence": v["confidence"],
+            },
+        ]
 
     def published_unfiltered_obstacles(self):
         output_msg = ObjectsStamped()
@@ -184,7 +226,7 @@ class Detector(Node):
                 obj = Object()
                 obj.label = label
                 obj.position = np.array(entry["avg_position"], dtype=np.float32)
-                obj.confidence = float(entry["confidence_total"] / entry["count"])
+                obj.confidence = float(entry["confidence"])
                 output_msg.objects.append(obj)
 
         self.obstacle_pub.publish(output_msg)
@@ -194,14 +236,14 @@ class Detector(Node):
         marker_id = 0
         selected_objects = []
 
-        # # Top 1 Car
-        # if "Car" in self.detected_objects:
+        # # Top 1 Vehicle
+        # if "Vehicle" in self.detected_objects:
         #     cars = sorted(
-        #         self.detected_objects["Car"],
+        #         self.detected_objects["Vehicle"],
         #         key=lambda o: -(o["confidence_total"] / o["count"]),
         #     )
         #     if cars:
-        #         selected_objects.append(("Car", cars[0]["avg_position"]))
+        #         selected_objects.append(("Vehicle", cars[0]["avg_position"]))
 
         # # Top 2 People
         # if "Person" in self.detected_objects:
@@ -214,7 +256,9 @@ class Detector(Node):
 
         for label, detections in self.detected_objects.items():
             for detection in detections:
-                selected_objects.append((label, detection["avg_position"], detection["confidence_total"] / detection["count"]))
+                selected_objects.append(
+                    (label, detection["avg_position"], detection["confidence"])
+                )
 
         # Publish only selected markers
         for label, position, confidence in selected_objects:
@@ -228,15 +272,17 @@ class Detector(Node):
             marker.action = Marker.ADD
             marker.pose.position.x = float(x)
             marker.pose.position.y = float(y)
-            marker.pose.position.z = float(z)
+            marker.pose.position.z = 0.0
             marker.pose.orientation.w = 1.0
             marker.scale.x = self.MARKER_SIZE
             marker.scale.y = self.MARKER_SIZE
             marker.scale.z = self.MARKER_SIZE
             marker.color = (
-                ColorRGBA(r=0.0, g=1.0, b=0.0, a=confidence)  # green for Person
+                ColorRGBA(r=0.0, g=1.0, b=0.0, a=confidence / 100.0)  # green for Person
                 if label == "Person"
-                else ColorRGBA(r=0.0, g=0.0, b=1.0, a=confidence)  # blue for Car
+                else ColorRGBA(
+                    r=0.0, g=0.0, b=1.0, a=confidence / 100.0
+                )  # blue for Vehicle
             )
             marker.lifetime = Duration(sec=2)
             marker_array.markers.append(marker)
@@ -244,14 +290,10 @@ class Detector(Node):
 
         self.marker_pub.publish(marker_array)
 
-    def _transform_point_in_map(
-        self, point, from_frame="base_link", to_frame="map"
-    ):
+    def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
         try:
-            now = rclpy.time.Time()
-            trans = self.tf_buffer.lookup_transform(
-                to_frame, from_frame, now, timeout=rclpy.duration.Duration(seconds=0.5)
-            )
+            now = self.get_clock().now()
+            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
 
             point_stamped = PointStamped()
             point_stamped.header.stamp = now.to_msg()
