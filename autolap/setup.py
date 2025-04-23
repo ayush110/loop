@@ -22,7 +22,9 @@ setup(
         'console_scripts': [
             'ml = autolap.MLModel:main',
             'lanefollower = autolap.LaneFollowerNode:main',
-            'lanefollower2 = autolap.LaneFollowerNode2:main'
+            'lanefollower2 = autolap.LaneFollowerNode2:main',
+            'lanefollower3 = autolap.LaneFollowerNode3:main',
+            'Dash = autolap.Dash:main',
         ],
     },
 )
