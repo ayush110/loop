@@ -20,7 +20,7 @@ class Detector(Node):
     def __init__(self):
         super().__init__("object_detector")
 
-        self.CONF_THRESHOLD = 0.5
+        self.CONF_THRESHOLD = 0.2
         self.MIN_ASSOCIATION_DISTANCE = 0.8  # meters
         self.MAX_VIEW_DISTANCE = 3
         self.MARKER_SIZE = 0.5  # meters
@@ -74,7 +74,7 @@ class Detector(Node):
                 if position_map is None:
                     continue
 
-                self.get_logger().info(f"Merging object detection: {obj.label}")
+                self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
                 self.detected_objects = self.non_maximum_suppression(self.detected_objects, self.MIN_ASSOCIATION_DISTANCE)
@@ -93,15 +93,20 @@ class Detector(Node):
                 entry["position_sum"] += position
                 entry["confidence_total"] += confidence
                 entry["count"] += 1
+
+                self.get_logger().warn(f"COUNT: {entry['count']}")
+
+                entry["confidence"] = float(entry["confidence_total"] / entry["count"])
                 entry["avg_position"] = entry["position_sum"] / entry["count"]
                 return
 
         # No close object found, create new one
         obj_list.append({
-            "position_sum": np.array(position),
-            "avg_position": np.array(position),
+            "position_sum": np.array(position, dtype=np.float32),
+            "avg_position": np.array(position, dtype=np.float32),
             "count": 1,
-            "confidence_total": confidence
+            "confidence_total": confidence,
+            "confidence": confidence
         })
 
     def non_maximum_suppression(self, objects_by_label, suppression_radius):
@@ -110,10 +115,6 @@ class Detector(Node):
         for label, objects in objects_by_label.items():
             if not objects:
                 continue
-
-            # Add confidence as separate field for convenience
-            for obj in objects:
-                obj["confidence"] = obj["confidence_total"] / obj["count"]
 
             # Sort by confidence descending
             sorted_objects = sorted(objects, key=lambda o: -o["confidence"])
@@ -141,7 +142,7 @@ class Detector(Node):
         if "Car" in self.detected_objects:
             cars = sorted(
                 self.detected_objects["Car"],
-                key=lambda o: -(o["confidence_total"] / o["count"]),
+                key=lambda o: -(o["confidence"]),
             )
             if cars:
                 car = cars[0]
@@ -149,7 +150,7 @@ class Detector(Node):
                     {
                         "class": "Car",
                         "position": car["avg_position"],
-                        "confidence": car["confidence_total"] / car["count"],
+                        "confidence": car["confidence"],
                     }
                 )
 
@@ -157,14 +158,14 @@ class Detector(Node):
         if "Person" in self.detected_objects:
             people = sorted(
                 self.detected_objects["Person"],
-                key=lambda o: -(o["confidence_total"] / o["count"]),
+                key=lambda o: -(o["confidence"]),
             )
             for person in people[:2]:
                 filtered_objects.append(
                     {
                         "class": "Person",
                         "position": person["avg_position"],
-                        "confidence": person["confidence_total"] / person["count"],
+                        "confidence": person["confidence"],
                     }
                 )
 
@@ -184,7 +185,7 @@ class Detector(Node):
                 obj = Object()
                 obj.label = label
                 obj.position = np.array(entry["avg_position"], dtype=np.float32)
-                obj.confidence = float(entry["confidence_total"] / entry["count"])
+                obj.confidence = float(entry["confidence"])
                 output_msg.objects.append(obj)
 
         self.obstacle_pub.publish(output_msg)
@@ -214,7 +215,9 @@ class Detector(Node):
 
         for label, detections in self.detected_objects.items():
             for detection in detections:
-                selected_objects.append((label, detection["avg_position"], detection["confidence_total"] / detection["count"]))
+                selected_objects.append((label, detection["avg_position"], detection["confidence"]))
+
+                self.get_logger().warn(f"{detection['avg_position']}, {detection['confidence']}")
 
         # Publish only selected markers
         for label, position, confidence in selected_objects:
@@ -245,7 +248,7 @@ class Detector(Node):
         self.marker_pub.publish(marker_array)
 
     def _transform_point_in_map(
-        self, point, from_frame="base_link", to_frame="map"
+        self, point, from_frame="zed_camera_center", to_frame="map"
     ):
         try:
             now = rclpy.time.Time()

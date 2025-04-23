@@ -93,6 +93,7 @@ class BicycleModelNavigationNode(Node):
 
     def update_current_pose_from_tf(self):
         try:
+            # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
                 "map", "base_link", rclpy.time.Time()
             )
