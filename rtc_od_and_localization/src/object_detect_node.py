@@ -292,7 +292,7 @@ class Detector(Node):
 
     def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
         try:
-            now = self.get_clock().now()
+            now = rclpy.time.Time()
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
 
             point_stamped = PointStamped()
