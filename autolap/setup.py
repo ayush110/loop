@@ -21,7 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'ml = autolap.MLModel:main',
-            'lanefollower = autolap.LaneFollowerNode:main'
+            'lanefollower = autolap.LaneFollowerNode:main',
+            'lanefollower2 = autolap.LaneFollowerNode2:main'
         ],
     },
 )
