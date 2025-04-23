@@ -35,9 +35,9 @@ class Detector(Node):
         self.obstacle_pub = self.create_publisher(
             ObjectsStamped, "/processed_obstacles", 10
         )
-        self.obstacle_timer = self.create_timer(
-            0.5, self.published_unfiltered_obstacles
-        )
+        # self.obstacle_timer = self.create_timer(
+        #     0.5, self.published_unfiltered_obstacles
+        # )
 
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
         self.marker_pub = self.create_publisher(
@@ -78,7 +78,7 @@ class Detector(Node):
 
                 position_map = self._transform_point_in_map(obj.position)
                 if not position_map or np.isnan(position_map).any():
-                    return
+                    continue
 
                 self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
@@ -146,17 +146,17 @@ class Detector(Node):
     def goal_reached_callback(self, msg):
         filtered_objects = []
 
-        # Get top 1 Car
-        if "Car" in self.detected_objects:
+        # Get top 1 Vehicle
+        if "Vehicle" in self.detected_objects:
             cars = sorted(
-                self.detected_objects["Car"],
+                self.detected_objects["Vehicle"],
                 key=lambda o: -(o["confidence"]),
             )
             if cars:
                 car = cars[0]
                 filtered_objects.append(
                     {
-                        "class": "Car",
+                        "class": "Vehicle",
                         "position": car["avg_position"],
                         "confidence": car["confidence"],
                     }
@@ -203,14 +203,14 @@ class Detector(Node):
         marker_id = 0
         selected_objects = []
 
-        # # Top 1 Car
-        # if "Car" in self.detected_objects:
+        # # Top 1 Vehicle
+        # if "Vehicle" in self.detected_objects:
         #     cars = sorted(
-        #         self.detected_objects["Car"],
+        #         self.detected_objects["Vehicle"],
         #         key=lambda o: -(o["confidence_total"] / o["count"]),
         #     )
         #     if cars:
-        #         selected_objects.append(("Car", cars[0]["avg_position"]))
+        #         selected_objects.append(("Vehicle", cars[0]["avg_position"]))
 
         # # Top 2 People
         # if "Person" in self.detected_objects:
@@ -249,7 +249,7 @@ class Detector(Node):
                 if label == "Person"
                 else ColorRGBA(
                     r=0.0, g=0.0, b=1.0, a=confidence / 100.0
-                )  # blue for Car
+                )  # blue for Vehicle
             )
             marker.lifetime = Duration(sec=2)
             marker_array.markers.append(marker)
