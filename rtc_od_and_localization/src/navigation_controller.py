@@ -23,7 +23,7 @@ class BicycleModelNavigationNode(Node):
         self.max_speed = 0.5  # Max linear speed in m/s
         self.max_angular_velocity = 0.2  # Max angular velocity in rad/s
         self.robot_length = (
-            0.5  # Length of the robot (distance between front and rear axles)
+            0.3  # Length of the robot (distance between front and rear axles)
         )
 
         # Subscribers
@@ -88,7 +88,7 @@ class BicycleModelNavigationNode(Node):
         # Convert obstacle point to a list of obstacles with (x, y) coordinates
         obstacles = []
         for obj in msg.objects:
-            obstacles.append((obj.position.x, obj.position.y))
+            obstacles.append((obj.position[0], obj.position[1]))
         return obstacles
 
     def update_current_pose_from_tf(self):
@@ -138,7 +138,7 @@ class BicycleModelNavigationNode(Node):
         # Start with basic proportional control for steering
         angular_velocity = self.kp * 0  # You can tune this gain
 
-        # self.get_logger().info(f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}")
+        self.get_logger().info(f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}")
 
         # Now, calculate obstacle avoidance adjustments:
         for obstacle in self.obstacles:
