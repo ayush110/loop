@@ -20,7 +20,7 @@ class Detector(Node):
     def __init__(self):
         super().__init__("object_detector")
 
-        self.CONF_THRESHOLD = 0.2
+        self.CONF_THRESHOLD = 20.0
         self.MIN_ASSOCIATION_DISTANCE = 0.8  # meters
         self.MAX_VIEW_DISTANCE = 3
         self.MARKER_SIZE = 0.5  # meters
@@ -35,7 +35,9 @@ class Detector(Node):
         self.obstacle_pub = self.create_publisher(
             ObjectsStamped, "/processed_obstacles", 10
         )
-        self.obstacle_timer = self.create_timer(0.5, self.published_unfiltered_obstacles)
+        self.obstacle_timer = self.create_timer(
+            0.5, self.published_unfiltered_obstacles
+        )
 
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
         self.marker_pub = self.create_publisher(
@@ -62,23 +64,28 @@ class Detector(Node):
                 if obj.label not in self.SUPPORTED_OBJECTS:
                     continue
                 if obj.confidence < self.CONF_THRESHOLD:
-                    self.get_logger().info(f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}")
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
+                    )
                     continue
 
                 distance_from_camera = np.linalg.norm(obj.position)
                 if distance_from_camera > self.MAX_VIEW_DISTANCE:
-                    self.get_logger().info(f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}")
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
+                    )
                     continue
 
                 position_map = self._transform_point_in_map(obj.position)
-                if position_map is None:
+                if not position_map or np.isnan(position_map).any():
                     return
 
                 self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-                self.detected_objects = self.non_maximum_suppression(self.detected_objects, self.MIN_ASSOCIATION_DISTANCE)
-
+                # self.detected_objects = self.non_maximum_suppression(
+                #     self.detected_objects
+                # )
 
             # change to either publish all received objects or just the best ones
             self.published_unfiltered_obstacles()
@@ -101,15 +108,17 @@ class Detector(Node):
                 return
 
         # No close object found, create new one
-        obj_list.append({
-            "position_sum": np.array(position, dtype=np.float32),
-            "avg_position": np.array(position, dtype=np.float32),
-            "count": 1,
-            "confidence_total": confidence,
-            "confidence": confidence
-        })
+        obj_list.append(
+            {
+                "position_sum": np.array(position, dtype=np.float32),
+                "avg_position": np.array(position, dtype=np.float32),
+                "count": 1,
+                "confidence_total": confidence,
+                "confidence": confidence,
+            }
+        )
 
-    def non_maximum_suppression(self, objects_by_label, suppression_radius):
+    def non_maximum_suppression(self, objects_by_label):
         final_objects = {}
 
         for label, objects in objects_by_label.items():
@@ -126,14 +135,15 @@ class Detector(Node):
 
                 # Remove all others that are too close to `current`
                 sorted_objects = [
-                    o for o in sorted_objects
-                    if np.linalg.norm(o["avg_position"] - current["avg_position"]) >= suppression_radius
+                    o
+                    for o in sorted_objects
+                    if np.linalg.norm(o["avg_position"] - current["avg_position"])
+                    >= self.MIN_ASSOCIATION_DISTANCE
                 ]
 
             final_objects[label] = kept
 
         return final_objects
-
 
     def goal_reached_callback(self, msg):
         filtered_objects = []
@@ -215,9 +225,13 @@ class Detector(Node):
 
         for label, detections in self.detected_objects.items():
             for detection in detections:
-                selected_objects.append((label, detection["avg_position"], detection["confidence"]))
+                selected_objects.append(
+                    (label, detection["avg_position"], detection["confidence"])
+                )
 
-                self.get_logger().warn(f"{detection['avg_position']}, {detection['confidence']}")
+                self.get_logger().warn(
+                    f"{detection['avg_position']}, {detection['confidence']}"
+                )
 
         # Publish only selected markers
         for label, position, confidence in selected_objects:
@@ -231,15 +245,17 @@ class Detector(Node):
             marker.action = Marker.ADD
             marker.pose.position.x = float(x)
             marker.pose.position.y = float(y)
-            marker.pose.position.z = float(z)
+            marker.pose.position.z = 0.0
             marker.pose.orientation.w = 1.0
             marker.scale.x = self.MARKER_SIZE
             marker.scale.y = self.MARKER_SIZE
             marker.scale.z = self.MARKER_SIZE
             marker.color = (
-                ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)  # green for Person
+                ColorRGBA(r=0.0, g=1.0, b=0.0, a=confidence / 100.0)  # green for Person
                 if label == "Person"
-                else ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)  # blue for Car
+                else ColorRGBA(
+                    r=0.0, g=0.0, b=1.0, a=confidence / 100.0
+                )  # blue for Car
             )
             marker.lifetime = Duration(sec=2)
             marker_array.markers.append(marker)
@@ -247,14 +263,10 @@ class Detector(Node):
 
         self.marker_pub.publish(marker_array)
 
-    def _transform_point_in_map(
-        self, point, from_frame="base_link", to_frame="map"
-    ):
+    def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
         try:
-            now = rclpy.time.Time(seconds=0)
-            trans = self.tf_buffer.lookup_transform(
-                to_frame, from_frame, now, timeout=rclpy.duration.Duration(seconds=0.5)
-            )
+            now = rclpy.time.Time()
+            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
 
             point_stamped = PointStamped()
             point_stamped.header.stamp = now.to_msg()
