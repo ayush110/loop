@@ -18,7 +18,7 @@ class BicycleModelNavigationNode(Node):
         super().__init__("bicycle_model_navigation_node")
 
         # Parameters for controlling the robot
-        self.goal_tolerance = 0.3  # 30 cm tolerance
+        self.goal_tolerance = 0.8  # 30 cm tolerance
         self.kp = 0.05  # Proportional constant for the PID controller
         self.max_speed = 0.5  # Max linear speed in m/s
         self.max_angular_velocity = 0.2  # Max angular velocity in rad/s
@@ -95,7 +95,7 @@ class BicycleModelNavigationNode(Node):
         try:
             # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
-                "map", "base_link", rclpy.time.Time()
+                "map", "base_link", self.get_clock().now()
             )
             pose = PoseStamped()
             pose.pose.position.x = trans.transform.translation.x
@@ -117,11 +117,9 @@ class BicycleModelNavigationNode(Node):
         goal_x = self.goal_pose.pose.position.x
         goal_y = self.goal_pose.pose.position.y
 
-
         # Calculate the distance to the goal
         distance = math.sqrt((goal_x - current_x) ** 2 + (goal_y - current_y) ** 2)
         self.get_logger().info(f"Distance: {distance}")
-
 
         # If we're within tolerance, stop
         if distance < self.goal_tolerance:
@@ -134,12 +132,16 @@ class BicycleModelNavigationNode(Node):
         angle_to_goal = math.atan2(goal_y - current_y, goal_x - current_x)
         heading = self._get_robot_heading()  # Should return yaw angle
 
-        angle_diff = math.atan2(math.sin(angle_to_goal - heading), math.cos(angle_to_goal - heading))
+        angle_diff = math.atan2(
+            math.sin(angle_to_goal - heading), math.cos(angle_to_goal - heading)
+        )
 
         # Start with basic proportional control for steering
         angular_velocity = self.kp * 0  # You can tune this gain
 
-        self.get_logger().info(f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}")
+        self.get_logger().info(
+            f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}"
+        )
 
         # Now, calculate obstacle avoidance adjustments:
         for obstacle in self.obstacles:

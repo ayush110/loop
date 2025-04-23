@@ -15,6 +15,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from zed_interfaces.msg import ObjectsStamped, Object
 from threading import Lock
 
+from itertools import combinations
+
 
 class Detector(Node):
     def __init__(self):
@@ -42,9 +44,6 @@ class Detector(Node):
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
         self.marker_pub = self.create_publisher(
             MarkerArray, "/detected_objects_markers", 10
-        )
-        self.marker_timer = self.create_timer(
-            1.0, self.publish_detected_objects_markers
         )
 
         self.create_subscription(
@@ -83,11 +82,12 @@ class Detector(Node):
                 self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-                # self.detected_objects = self.non_maximum_suppression(
-                #     self.detected_objects
-                # )
+                self.detected_objects = self.non_maximum_suppression(
+                    self.detected_objects
+                )
 
             # change to either publish all received objects or just the best ones
+            self.publish_detected_objects_markers()
             self.published_unfiltered_obstacles()
 
     def merge_static_obstacle(self, label, position, confidence):
@@ -144,44 +144,77 @@ class Detector(Node):
         return final_objects
 
     def goal_reached_callback(self, msg):
-        filtered_objects = []
-
-        # Get top 1 Vehicle
-        if "Vehicle" in self.detected_objects:
-            cars = sorted(
-                self.detected_objects["Vehicle"],
-                key=lambda o: -(o["confidence"]),
-            )
-            if cars:
-                car = cars[0]
-                filtered_objects.append(
-                    {
-                        "class": "Vehicle",
-                        "position": car["avg_position"],
-                        "confidence": car["confidence"],
-                    }
-                )
-
-        # Get top 2 People
-        if "Person" in self.detected_objects:
-            people = sorted(
-                self.detected_objects["Person"],
-                key=lambda o: -(o["confidence"]),
-            )
-            for person in people[:2]:
-                filtered_objects.append(
-                    {
-                        "class": "Person",
-                        "position": person["avg_position"],
-                        "confidence": person["confidence"],
-                    }
-                )
+        # now filter_top_3() returns exactly what we need for CSV
+        filtered_objects = self.filter_top_3()
 
         with open("detected_objects.csv", "w") as f:
             f.write("class,x,y,z\n")
             for obj in filtered_objects:
                 x, y, z = obj["position"]
-                f.write(f"{obj['class']},{x},{y},{z}\n")
+                f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+
+    def filter_top_3(self):
+        people = self.detected_objects.get("Person", [])
+        vehicles = self.detected_objects.get("Vehicle", [])
+
+        # Fallback: not enough to do 2P+1V?  Return top-3 by confidence across all.
+        if len(people) < 2 or len(vehicles) < 1:
+            all_objs = []
+            for label, entries in self.detected_objects.items():
+                for e in entries:
+                    all_objs.append(
+                        {
+                            "class": label,
+                            "position": e["avg_position"],
+                            "confidence": e["confidence"],
+                        }
+                    )
+            # just pick the top-3 by confidence
+            return sorted(all_objs, key=lambda o: -o["confidence"])[:3]
+
+        best_score = (-1.0, -1.0)  # (min_pairwise_dist, total_confidence)
+        best_triple = None
+
+        # Brute-force every (2 people, 1 vehicle) combination
+        for p1, p2 in combinations(people, 2):
+            pos1 = np.array(p1["avg_position"])
+            pos2 = np.array(p2["avg_position"])
+            for v in vehicles:
+                pos_v = np.array(v["avg_position"])
+
+                # compute the three pairwise distances
+                d12 = np.linalg.norm(pos1 - pos2)
+                d1v = np.linalg.norm(pos1 - pos_v)
+                d2v = np.linalg.norm(pos2 - pos_v)
+                min_dist = min(d12, d1v, d2v)
+
+                # tie-breaker: sum of confidences
+                total_conf = p1["confidence"] + p2["confidence"] + v["confidence"]
+
+                score = (min_dist, total_conf)
+                if score > best_score:
+                    best_score = score
+                    best_triple = (p1, p2, v)
+
+        # Unpack into simple dicts for CSV
+        p1, p2, v = best_triple
+        return [
+            {
+                "class": "Person",
+                "position": p1["avg_position"],
+                "confidence": p1["confidence"],
+            },
+            {
+                "class": "Person",
+                "position": p2["avg_position"],
+                "confidence": p2["confidence"],
+            },
+            {
+                "class": "Vehicle",
+                "position": v["avg_position"],
+                "confidence": v["confidence"],
+            },
+        ]
 
     def published_unfiltered_obstacles(self):
         output_msg = ObjectsStamped()
@@ -259,7 +292,7 @@ class Detector(Node):
 
     def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
         try:
-            now = rclpy.time.Time()
+            now = self.get_clock().now()
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
 
             point_stamped = PointStamped()
