@@ -101,8 +101,6 @@ class Detector(Node):
                 entry["confidence_total"] += confidence
                 entry["count"] += 1
 
-                self.get_logger().warn(f"COUNT: {entry['count']}")
-
                 entry["confidence"] = float(entry["confidence_total"] / entry["count"])
                 entry["avg_position"] = entry["position_sum"] / entry["count"]
                 return
@@ -227,10 +225,6 @@ class Detector(Node):
             for detection in detections:
                 selected_objects.append(
                     (label, detection["avg_position"], detection["confidence"])
-                )
-
-                self.get_logger().warn(
-                    f"{detection['avg_position']}, {detection['confidence']}"
                 )
 
         # Publish only selected markers
