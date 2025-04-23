@@ -20,9 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'ml = autolap.MLModel:main'
-            'lanedetection = autolap.LaneDetectionNode:main'
-            'LaneFollowerNode = autolap.LaneFollowerNode:main'
+            'ml = autolap.MLModel:main',
+            'lanefollower = autolap.LaneFollowerNode:main'
         ],
     },
 )
