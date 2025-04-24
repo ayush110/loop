@@ -39,7 +39,7 @@ class BicycleModelNavigationNode(Node):
         # )
 
         # Timer for regular replanning (e.g., every 0.2 seconds)
-        self.timer = self.create_timer(0.01, self.timer_callback)
+        self.timer = self.create_timer(0.1, self.timer_callback)
 
         # Publisher for movement commands (Twist)
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", QoSProfile(depth=10))
@@ -127,11 +127,12 @@ class BicycleModelNavigationNode(Node):
 
         # If we're within tolerance, stop
         if distance < self.goal_tolerance:
+            self.goal_reached = True
             self.get_logger().info("Goal reached!")
             self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
 
-            time.sleep(0.3)
+            rclpy.sleep(1.0)  # Wait for a second before stopping
             self.destroy_node()
             rclpy.shutdown()
             return
