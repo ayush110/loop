@@ -57,12 +57,17 @@ class Dash(Node):
         self.current_y = 0.0
         self.add_on_set_parameters_callback(self.param_callback)
 
+        self.get_logger().info('Started Node')
+
     def odom_callback(self, msg):
         self.current_y = msg.pose.pose.position.y
+        self.get_logger().info(f"Odom y: {self.current_y}")
 
     def control_loop(self):
         error = -self.current_y
         correction = self.pid.compute(error)
+
+        self.get_logger().info(f"Correction: {correction}")
 
         cmd = Twist()
         cmd.linear.x = 0.2

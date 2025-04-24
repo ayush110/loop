@@ -77,7 +77,7 @@ class Detector(Node):
                     continue
 
                 position_map = self._transform_point_in_map(obj.position)
-                if not position_map or np.isnan(position_map).any():
+                if position_map is None or np.isnan(position_map).any():
                     continue
 
                 self.get_logger().error(f"position in map: {position_map}")
@@ -159,9 +159,13 @@ class Detector(Node):
             for obj in filtered_objects:
                 x, y, z = obj["position"]
                 f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
-
+            
         self.publish_offline_filtered_obstacle_markers(filtered_objects)
         self.get_logger().info("Filtered objects saved to detected_objects.csv")
+        
+        # exit the node and everything
+        self.destroy_node()
+        rclpy.shutdown()
 
     def offline_filter_obstacles(self):
         all_detections = []
@@ -238,6 +242,7 @@ class Detector(Node):
         # Fallback: return top-3 by confidence
         self.get_logger().error("Did not find 2P+1V in clusters, returning top-3")
         return sorted(merged_detections, key=lambda d: -d["confidence"])[:3]
+
 
     def published_unfiltered_obstacles(self):
         output_msg = ObjectsStamped()
