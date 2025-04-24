@@ -8,6 +8,7 @@ from nav_msgs.msg import Odometry
 import math
 import tf2_ros
 import tf_transformations
+from threading import Lock
 
 from zed_interfaces.msg import ObjectsStamped  # (FOR USE ON REAL ROBOT)
 
@@ -60,6 +61,7 @@ class BicycleModelNavigationNode(Node):
 
         # Obstacle data (initially empty)
         self.obstacles = []
+        self.obstacle_mutex = Lock()
 
     def goal_pose_callback(self, msg: PoseStamped):
         self.get_logger().info(
@@ -78,7 +80,11 @@ class BicycleModelNavigationNode(Node):
     def obstacle_callback(self, msg: ObjectsStamped):
         # received every time we have a new obstacle
         # use this to update the obstacle list
-        self.obstacles = self.process_obstacle_data(msg)
+        with self.obstacle_mutex:
+            obstacles = []
+            for obj in msg.objects:
+                obstacles.append((obj.position[0], obj.position[1]))
+            self.obstacles = obstacles
 
         if not self.obstacles:
             return
@@ -87,13 +93,6 @@ class BicycleModelNavigationNode(Node):
 
         if self.goal_pose is not None:
             self.navigate_to_goal()
-
-    def process_obstacle_data(self, msg: ObjectsStamped):
-        # Convert obstacle point to a list of obstacles with (x, y) coordinates
-        obstacles = []
-        for obj in msg.objects:
-            obstacles.append((obj.position[0], obj.position[1]))
-        return obstacles
 
     def update_current_pose_from_tf(self):
         try:
@@ -127,8 +126,9 @@ class BicycleModelNavigationNode(Node):
 
         # If we're within tolerance, stop
         if distance < self.goal_tolerance:
-            self.goal_reached = True
             self.get_logger().info("Goal reached!")
+
+            self.goal_reached = True
             self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
 
@@ -160,7 +160,7 @@ class BicycleModelNavigationNode(Node):
 
         #         # Calculate steering adjustment: If obstacle is near, steer away
         #         angular_velocity += (
-        #             1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
+        #             1.0 / dist_to_obs * (heading - angle_to_obs)
         #         )
         # angular_velocity = max(
         #     min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity
