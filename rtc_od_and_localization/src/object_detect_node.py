@@ -157,10 +157,10 @@ class Detector(Node):
             for obj in filtered_objects:
                 x, y, z = obj["position"]
                 f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
-            
+
         self.publish_offline_filtered_obstacle_markers(filtered_objects)
         self.get_logger().info("Filtered objects saved to detected_objects.csv")
-        
+
         # exit the node and everything
         self.destroy_node()
         rclpy.shutdown()
@@ -239,8 +239,8 @@ class Detector(Node):
 
         # Fallback: return top-3 by confidence
         self.get_logger().error("Did not find 2P+1V in clusters, returning top-3")
-        return sorted(merged_detections, key=lambda d: -d["confidence"])[:3]
-
+        # TODO: CHANGE THIS BACK TO 3
+        return sorted(merged_detections, key=lambda d: -d["confidence"])  # [:3]
 
     def published_unfiltered_obstacles(self):
         output_msg = ObjectsStamped()
