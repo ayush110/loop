@@ -164,9 +164,9 @@ class Detector(Node):
             self.publish_offline_filtered_obstacle_markers(filtered_objects)
             self.get_logger().info("Filtered objects saved to detected_objects.csv")
 
-            # exit the node and everything
-            self.destroy_node()
-            rclpy.shutdown()
+        # exit the node and everything
+        self.destroy_node()
+        rclpy.shutdown()
 
     def offline_filter_obstacles(self):
         all_detections = []
@@ -227,16 +227,16 @@ class Detector(Node):
         people = [d for d in merged_detections if d["class"] == "Person"]
         vehicles = [d for d in merged_detections if d["class"] == "Vehicle"]
 
-        if len(people) >= 2 and len(vehicles) >= 1:
+        if len(people) >= 1 and len(vehicles) >= 2:
             best_score = -1.0
             best_triple = None
 
-            for p1, p2 in combinations(people, 2):
-                for v in vehicles:
-                    total_conf = p1["confidence"] + p2["confidence"] + v["confidence"]
+            for v1, v2 in combinations(vehicles, 2):
+                for p in people:
+                    total_conf = v1["confidence"] + v2["confidence"] + p["confidence"]
                     if total_conf > best_score:
                         best_score = total_conf
-                        best_triple = [p1, p2, v]
+                        best_triple = [v1, v2, p]
 
             return best_triple
 
@@ -339,7 +339,7 @@ class Detector(Node):
         self.filtered_obstacles_pub.publish(marker_array)
 
     def _transform_point_in_map(
-        self, point, from_frame="zed_camera_center", to_frame="map"
+        self, point, from_frame="base_link", to_frame="map"
     ):
         try:
             now = rclpy.time.Time()

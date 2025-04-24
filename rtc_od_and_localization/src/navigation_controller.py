@@ -99,7 +99,7 @@ class BicycleModelNavigationNode(Node):
         try:
             # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
-                "odom", "zed_camera_center", rclpy.time.Time()
+                "map", "base_link", rclpy.time.Time()
             )
             pose = PoseStamped()
             pose.pose.position.x = trans.transform.translation.x
@@ -130,6 +130,8 @@ class BicycleModelNavigationNode(Node):
             self.get_logger().info("Goal reached!")
             self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
+
+            time.sleep(0.3)
             self.destroy_node()
             rclpy.shutdown()
             return

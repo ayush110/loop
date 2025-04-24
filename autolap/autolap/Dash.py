@@ -34,9 +34,9 @@ class Dash(Node):
         super().__init__('straight_line_pid')
 
         # Declare tunable parameters
-        self.declare_parameter('kp', 1.5)
-        self.declare_parameter('ki', 0.0)
-        self.declare_parameter('kd', 0.2)
+        self.declare_parameter('kp', 0.5)
+        self.declare_parameter('ki', 0.1)
+        self.declare_parameter('kd', 0.0)
 
         self.pid = PID(
             self.get_parameter('kp').value,
@@ -71,7 +71,8 @@ class Dash(Node):
 
         cmd = Twist()
         cmd.linear.x = 2.0
-        cmd.angular.z = -0.02 
+        cmd.angular.z = correction
+        # cmd.angular.z = -0.02055 
 
         self.publisher.publish(cmd)
 
@@ -99,8 +100,8 @@ if __name__ == '__main__':
 
 """ros2 run autolap Dash \
   --ros-args \
-  -p kp:=1.0 \
-  -p ki:=0.0 \
+  -p kp:=0.5 \
+  -p ki:=0.1 \
   -p kd:=0.0
 
   rqt_plot /zed/zed_node/odom/pose/pose/position/y
