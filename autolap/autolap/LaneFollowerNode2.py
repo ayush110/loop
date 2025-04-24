@@ -11,12 +11,55 @@ class LaneFollowerNode2(Node):
         super().__init__('lane_follower')
 
         self.bridge = CvBridge()
-        self.image_sub = self.create_subscription(Image, '/zed/zed_node/left/image_rect_color', self.image_callback, 10)
+        self.image_sub = self.create_subscription(Image, '/zed/zed_node/left/image_rect_color', self.rgb_image_callback, 10)
+        self.depth_sub = self.create_subscription(Image, '/zed/zed_node/depth/depth_registered', self.depth_image_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.depth_sub = self.create_subscription(Image, '/zed/zed_node/depth/depth_registered', self.image_callback, 10)
         self.image_pub = self.create_publisher(Image, '/lane_detection/image', 10)
 
+        self.latest_depth_image = None
+
         self.get_logger().info('Started Node')
+
+    def depth_image_callback(self, msg):
+        try:
+            depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            self.latest_depth_image = depth_image
+        except Exception as e:
+            self.get_logger().error(f"Depth CV bridge error: {e}")
+
+    def rgb_image_callback(self, msg):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().error(f"RGB CV bridge error: {e}")
+            return
+
+        cropped = self.crop_bottom_half(cv_image)
+        y_offset = cv_image.shape[0] - cropped.shape[0]
+
+        processed_image, lane_center, used_side = self.process_image(cropped, self.latest_depth_image, y_offset)
+
+        angle = self.calculate_steering_angle(lane_center, cropped.shape[1])
+
+        if used_side == 'left':
+            angle = abs(angle)  # steer right
+        elif used_side == 'right':
+            angle = -abs(angle)  # steer left
+
+        self.get_logger().info(f'Steering Angle: {angle:.2f} (from {used_side} lane)')
+
+        twist_msg = Twist()
+        twist_msg.linear.x = 0.2
+        twist_msg.angular.z = angle
+        self.cmd_pub.publish(twist_msg)
+
+        try:
+            debug_img_msg = self.bridge.cv2_to_imgmsg(processed_image, encoding='bgr8')
+            debug_img_msg.header.stamp = msg.header.stamp
+            debug_img_msg.header.frame_id = "zed_left_camera"
+            self.image_pub.publish(debug_img_msg)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to publish debug image: {e}")
 
     def crop_bottom_half(self, image, ratio=0.5):
         height = image.shape[0]
@@ -29,13 +72,14 @@ class LaneFollowerNode2(Node):
         upper_white = np.array([180, 80, 255])
         return cv2.inRange(hsv, lower_white, upper_white)
 
-    def get_depth_at_point(self, depth_image, x, y):
-        if depth_image is None or y >= depth_image.shape[0] or x >= depth_image.shape[1]:
+    def get_depth_at_point(self, depth_image, x, y, y_offset=0):
+        y_original = y + y_offset
+        if depth_image is None or y_original >= depth_image.shape[0] or x >= depth_image.shape[1]:
             return None
-        depth = depth_image[y, x]
+        depth = depth_image[y_original, x]
         return float(depth) if not np.isnan(depth) and depth > 0.1 else None
 
-    def process_image(self, image, depth_image=None):
+    def process_image(self, image, depth_image=None, y_offset=0):
         white_mask = self.isolate_white(image)
         kernel = np.ones((5, 5), np.uint8)
         cleaned = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
@@ -71,8 +115,8 @@ class LaneFollowerNode2(Node):
                     if abs(slope) < 0.3 or abs(slope) > 2.0:
                         continue
 
-                    depth1 = self.get_depth_at_point(depth_image, x1, y1)
-                    depth2 = self.get_depth_at_point(depth_image, x2, y2)
+                    depth1 = self.get_depth_at_point(depth_image, x1, y1, y_offset)
+                    depth2 = self.get_depth_at_point(depth_image, x2, y2, y_offset)
                     avg_depth = (depth1 + depth2) / 2 if depth1 and depth2 else None
                     if avg_depth is None:
                         continue
@@ -103,8 +147,6 @@ class LaneFollowerNode2(Node):
             elif right_lane_center is not None:
                 lane_center = right_lane_center
                 used_side = 'right'
-            else:
-                used_side = None
 
             for x1, y1, x2, y2 in left_lines:
                 cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
@@ -135,39 +177,6 @@ class LaneFollowerNode2(Node):
         error = lane_center - image_width // 2
         max_error = image_width // 2
         return error / max_error
-
-    def image_callback(self, msg):
-        try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        except Exception as e:
-            self.get_logger().error(f"CV bridge error: {e}")
-            return
-
-        cropped = self.crop_bottom_half(cv_image)
-        processed_image, lane_center, used_side = self.process_image(cropped)
-
-        angle = self.calculate_steering_angle(lane_center, cropped.shape[1])
-
-        # Modify steering to move away from the seen lane
-        if used_side == 'left':
-            angle = abs(angle)  # steer right
-        elif used_side == 'right':
-            angle = -abs(angle)  # steer left
-
-        self.get_logger().info(f'Steering Angle: {angle} (from {used_side} lane)')
-
-        twist_msg = Twist()
-        twist_msg.linear.x = 0.2
-        twist_msg.angular.z = angle
-        self.cmd_pub.publish(twist_msg)
-
-        try:
-            debug_img_msg = self.bridge.cv2_to_imgmsg(processed_image, encoding='bgr8')
-            debug_img_msg.header.stamp = msg.header.stamp
-            debug_img_msg.header.frame_id = "zed_left_camera"
-            self.image_pub.publish(debug_img_msg)
-        except Exception as e:
-            self.get_logger().warn(f"Failed to publish debug image: {e}")
 
 def main(args=None):
     rclpy.init(args=args)
