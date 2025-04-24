@@ -99,7 +99,7 @@ class BicycleModelNavigationNode(Node):
         try:
             # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
-                "map", "zed_camera_center", rclpy.time.Time()
+                "odom", "zed_camera_center", rclpy.time.Time()
             )
             pose = PoseStamped()
             pose.pose.position.x = trans.transform.translation.x
