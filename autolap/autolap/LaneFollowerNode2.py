@@ -16,7 +16,7 @@ class LaneFollowerNode2(Node):
         self.depth_sub = self.create_subscription(Image, '/zed/zed_node/depth/depth_registered', self.image_callback, 10)
         self.image_pub = self.create_publisher(Image, '/lane_detection/image', 10)
 
-        self.get_logger().info(f'Started Node')
+        self.get_logger().info('Started Node')
 
     def crop_bottom_half(self, image, ratio=0.5):
         height = image.shape[0]
@@ -27,19 +27,15 @@ class LaneFollowerNode2(Node):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         lower_white = np.array([0, 0, 160])
         upper_white = np.array([180, 80, 255])
-
         return cv2.inRange(hsv, lower_white, upper_white)
 
-    def is_horizontal_or_vertical(self, x1, y1, x2, y2, threshold=0.1):
-        dx = abs(x2 - x1)
-        dy = abs(y2 - y1)
-        if dx == 0 or dx < threshold * dy:
-            return True  # Vertical
-        if dy == 0 or dy < threshold * dx:
-            return True  # Horizontal
-        return False
+    def get_depth_at_point(self, depth_image, x, y):
+        if depth_image is None or y >= depth_image.shape[0] or x >= depth_image.shape[1]:
+            return None
+        depth = depth_image[y, x]
+        return float(depth) if not np.isnan(depth) and depth > 0.1 else None
 
-    def process_image(self, image, depth_image):
+    def process_image(self, image, depth_image=None):
         white_mask = self.isolate_white(image)
         kernel = np.ones((5, 5), np.uint8)
         cleaned = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
@@ -72,21 +68,15 @@ class LaneFollowerNode2(Node):
             for line in lines:
                 for x1, y1, x2, y2 in line:
                     slope = (y2 - y1) / (x2 - x1 + 1e-6)
-
-                    # Filter out invalid lines (based on slope)
                     if abs(slope) < 0.3 or abs(slope) > 2.0:
                         continue
 
-                    # Calculate depth for each point of the line
                     depth1 = self.get_depth_at_point(depth_image, x1, y1)
                     depth2 = self.get_depth_at_point(depth_image, x2, y2)
-
                     avg_depth = (depth1 + depth2) / 2 if depth1 and depth2 else None
-
                     if avg_depth is None:
                         continue
 
-                    # Split lines into left and right based on slope
                     if slope < -0.1:
                         left_lines.append((x1, y1, x2, y2))
                         left_depths.append(avg_depth)
@@ -94,65 +84,57 @@ class LaneFollowerNode2(Node):
                         right_lines.append((x1, y1, x2, y2))
                         right_depths.append(avg_depth)
 
-            # Calculate weighted average for the lane center based on depth
             left_lane_center = self.calculate_weighted_center(left_lines, left_depths)
             right_lane_center = self.calculate_weighted_center(right_lines, right_depths)
 
-            # Choose the lane with the closest average depth
+            used_side = None
             if left_lane_center is not None and right_lane_center is not None:
                 left_avg_depth = np.mean(left_depths)
                 right_avg_depth = np.mean(right_depths)
                 if left_avg_depth < right_avg_depth:
                     lane_center = left_lane_center
+                    used_side = 'left'
                 else:
                     lane_center = right_lane_center
+                    used_side = 'right'
             elif left_lane_center is not None:
                 lane_center = left_lane_center
+                used_side = 'left'
             elif right_lane_center is not None:
                 lane_center = right_lane_center
+                used_side = 'right'
+            else:
+                used_side = None
 
-            # Draw the selected lane line(s) on the image
-            if left_lines:
-                for x1, y1, x2, y2 in left_lines:
-                    cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            for x1, y1, x2, y2 in left_lines:
+                cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            for x1, y1, x2, y2 in right_lines:
+                cv2.line(output_image, (x1, y1), (x2, y2), (0, 0, 255), 3)
 
-            if right_lines:
-                for x1, y1, x2, y2 in right_lines:
-                    cv2.line(output_image, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            cv2.line(output_image, (int(lane_center), 0), (int(lane_center), height), (0, 0, 255), 2)
+            cv2.putText(output_image, f"Lane center: {int(lane_center)}", (int(lane_center) + 10, height - 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
+            cv2.circle(output_image, (int(lane_center), height - 30), 10, (255, 0, 0), -1)
 
-        # Mark the lane center on the image
-        cv2.line(output_image, (int(lane_center), 0), (int(lane_center), height), (0, 0, 255), 2)
-        cv2.putText(output_image, f"Lane center: {int(lane_center)}",
-                    (int(lane_center) + 10, height - 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
-        cv2.circle(output_image, (int(lane_center), height - 30), 10, (255, 0, 0), -1)
+            return output_image, lane_center, used_side
 
-        return output_image, lane_center
-
+        return output_image, lane_center, None
 
     def calculate_weighted_center(self, lines, depths):
-        """
-        Calculate the weighted average of the x-coordinates based on their depth.
-        Closer lines (with smaller depth) will have more influence.
-        """
         if not lines or not depths:
             return None
-
-        # Calculate weighted sum of x-coordinates based on depth
         weighted_x_sum = 0
         total_weight = 0
         for (x1, y1, x2, y2), depth in zip(lines, depths):
-            weight = 1 / depth  # Smaller depth -> bigger weight
+            weight = 1 / depth
             weighted_x_sum += (x1 + x2) / 2 * weight
             total_weight += weight
-
         return weighted_x_sum / total_weight if total_weight > 0 else None
-
 
     def calculate_steering_angle(self, lane_center, image_width):
         error = lane_center - image_width // 2
         max_error = image_width // 2
-        return error / max_error 
+        return error / max_error
 
     def image_callback(self, msg):
         try:
@@ -162,14 +144,21 @@ class LaneFollowerNode2(Node):
             return
 
         cropped = self.crop_bottom_half(cv_image)
-        processed_image, lane_center = self.process_image(cropped)
+        processed_image, lane_center, used_side = self.process_image(cropped)
+
         angle = self.calculate_steering_angle(lane_center, cropped.shape[1])
 
-        self.get_logger().info(f'Steering Angle: {angle}')
+        # Modify steering to move away from the seen lane
+        if used_side == 'left':
+            angle = abs(angle)  # steer right
+        elif used_side == 'right':
+            angle = -abs(angle)  # steer left
+
+        self.get_logger().info(f'Steering Angle: {angle} (from {used_side} lane)')
 
         twist_msg = Twist()
-        twist_msg.linear.x = 0.2  # constant speed
-        twist_msg.angular.z = -angle  # negate if necessary depending on frame
+        twist_msg.linear.x = 0.2
+        twist_msg.angular.z = angle
         self.cmd_pub.publish(twist_msg)
 
         try:
