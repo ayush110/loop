@@ -18,7 +18,7 @@ class BicycleModelNavigationNode(Node):
         super().__init__("bicycle_model_navigation_node")
 
         # Parameters for controlling the robot
-        self.goal_tolerance = 0.8  # 30 cm tolerance
+        self.goal_tolerance = 0.5  # 30 cm tolerance
         self.kp = 0.05  # Proportional constant for the PID controller
         self.max_speed = 0.5  # Max linear speed in m/s
         self.max_angular_velocity = 0.2  # Max angular velocity in rad/s
@@ -39,7 +39,7 @@ class BicycleModelNavigationNode(Node):
         )
 
         # Timer for regular replanning (e.g., every 0.2 seconds)
-        self.timer = self.create_timer(0.2, self.timer_callback)
+        self.timer = self.create_timer(0.01, self.timer_callback)
 
         # Publisher for movement commands (Twist)
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", QoSProfile(depth=10))
@@ -67,7 +67,10 @@ class BicycleModelNavigationNode(Node):
         self.goal_pose = msg
 
     def timer_callback(self):
-        self.update_current_pose_from_tf()
+        new_pose = self.update_current_pose_from_tf()
+        if new_pose:
+            self.current_pose = new_pose
+
         if self.goal_pose is not None:
             self.navigate_to_goal()
 
@@ -95,17 +98,17 @@ class BicycleModelNavigationNode(Node):
         try:
             # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
-                "map", "base_link", rclpy.time.Time()
+                "map", "zed_camera_center", rclpy.time.Time(seconds=0)
             )
             pose = PoseStamped()
             pose.pose.position.x = trans.transform.translation.x
             pose.pose.position.y = trans.transform.translation.y
             pose.pose.position.z = trans.transform.translation.z
             pose.pose.orientation = trans.transform.rotation
-            self.current_pose = pose.pose
+            return pose.pose
         except Exception as e:
             self.get_logger().warn(f"Failed to get transform: {str(e)}")
-            self.current_pose = None
+            return None
 
     def navigate_to_goal(self):
         if self.current_pose is None or self.goal_pose is None:
@@ -126,43 +129,45 @@ class BicycleModelNavigationNode(Node):
             self.get_logger().info("Goal reached!")
             self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
+            self.destroy_node()
+            rclpy.shutdown()
             return
 
         # Calculate angle to the goal (heading)
         angle_to_goal = math.atan2(goal_y - current_y, goal_x - current_x)
         heading = self._get_robot_heading()  # Should return yaw angle
 
-        angle_diff = math.atan2(
-            math.sin(angle_to_goal - heading), math.cos(angle_to_goal - heading)
-        )
+        # angle_diff = math.atan2(
+        #     math.sin(angle_to_goal - heading), math.cos(angle_to_goal - heading)
+        # )
 
-        # Start with basic proportional control for steering
-        angular_velocity = self.kp * 0  # You can tune this gain
+        # # Start with basic proportional control for steering
+        # angular_velocity = self.kp * 0  # You can tune this gain
 
-        self.get_logger().info(
-            f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}"
-        )
+        # self.get_logger().info(
+        #     f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}"
+        # )
 
-        # Now, calculate obstacle avoidance adjustments:
-        for obstacle in self.obstacles:
-            obs_x, obs_y = obstacle
-            # Calculate the distance to the obstacle
-            dist_to_obs = math.sqrt((obs_x - current_x) ** 2 + (obs_y - current_y) ** 2)
+        # # Now, calculate obstacle avoidance adjustments:
+        # for obstacle in self.obstacles:
+        #     obs_x, obs_y = obstacle
+        #     # Calculate the distance to the obstacle
+        #     dist_to_obs = math.sqrt((obs_x - current_x) ** 2 + (obs_y - current_y) ** 2)
 
-            # If the obstacle is within a critical distance (e.g., 1 meter), adjust steering
-            if dist_to_obs < 1.0:  # 1 meter threshold
-                # Calculate the angle to the obstacle
-                angle_to_obs = math.atan2(obs_y - current_y, obs_x - current_x)
+        #     # If the obstacle is within a critical distance (e.g., 1 meter), adjust steering
+        #     if dist_to_obs < 1.0:  # 1 meter threshold
+        #         # Calculate the angle to the obstacle
+        #         angle_to_obs = math.atan2(obs_y - current_y, obs_x - current_x)
 
-                # Calculate steering adjustment: If obstacle is near, steer away
-                angular_velocity += (
-                    1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
-                )
+        #         # Calculate steering adjustment: If obstacle is near, steer away
+        #         angular_velocity += (
+        #             1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
+        #         )
 
-        # Apply some damping to prevent oscillations
-        angular_velocity = max(
-            min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity
-        )
+        # # Apply some damping to prevent oscillations
+        # angular_velocity = max(
+        #     min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity
+        # )
 
         # Calculate linear speed to goal (keep it proportional)
         linear_speed = min(self.kp * distance, self.max_speed)
@@ -170,7 +175,6 @@ class BicycleModelNavigationNode(Node):
         # Create a Twist message to control movement
         cmd_msg = Twist()
         cmd_msg.linear.x = linear_speed
-        cmd_msg.angular.z = angular_velocity
 
         # Publish the command
         self.cmd_pub.publish(cmd_msg)

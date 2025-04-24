@@ -335,7 +335,7 @@ class Detector(Node):
 
         self.filtered_obstacles_pub.publish(marker_array)
 
-    def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
+    def _transform_point_in_map(self, point, from_frame="zed_camera_center", to_frame="map"):
         try:
             now = rclpy.time.Time()
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)

@@ -70,8 +70,8 @@ class Dash(Node):
         self.get_logger().info(f"Correction: {correction}")
 
         cmd = Twist()
-        cmd.linear.x = 0.2
-        cmd.angular.z = correction
+        cmd.linear.x = 2.0
+        cmd.angular.z = -0.02 
 
         self.publisher.publish(cmd)
 
@@ -99,9 +99,9 @@ if __name__ == '__main__':
 
 """ros2 run autolap Dash \
   --ros-args \
-  -p kp:=2.0 \
-  -p ki:=0.05 \
-  -p kd:=0.3
+  -p kp:=1.0 \
+  -p ki:=0.0 \
+  -p kd:=0.0
 
   rqt_plot /zed/zed_node/odom/pose/pose/position/y
 """
