@@ -31,12 +31,12 @@ class BicycleModelNavigationNode(Node):
             PoseStamped, "/goal_pose", self.goal_pose_callback, QoSProfile(depth=10)
         )
 
-        self.obstacle_subscriber = self.create_subscription(
-            ObjectsStamped,
-            "/processed_obstacles",
-            self.obstacle_callback,
-            QoSProfile(depth=10),
-        )
+        # self.obstacle_subscriber = self.create_subscription(
+        #     ObjectsStamped,
+        #     "/processed_obstacles",
+        #     self.obstacle_callback,
+        #     QoSProfile(depth=10),
+        # )
 
         # Timer for regular replanning (e.g., every 0.2 seconds)
         self.timer = self.create_timer(0.01, self.timer_callback)
@@ -54,6 +54,7 @@ class BicycleModelNavigationNode(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         # Current robot pose and goal
+        self.goal_reached = False
         self.current_pose = None
         self.goal_pose = None
 
@@ -98,7 +99,7 @@ class BicycleModelNavigationNode(Node):
         try:
             # try zed camera center and just use odometry
             trans = self.tf_buffer.lookup_transform(
-                "map", "zed_camera_center", rclpy.time.Time(seconds=0)
+                "map", "zed_camera_center", rclpy.time.Time()
             )
             pose = PoseStamped()
             pose.pose.position.x = trans.transform.translation.x
@@ -111,7 +112,7 @@ class BicycleModelNavigationNode(Node):
             return None
 
     def navigate_to_goal(self):
-        if self.current_pose is None or self.goal_pose is None:
+        if self.current_pose is None or self.goal_pose is None or self.goal_reached:
             return
 
         # Get current position and goal position

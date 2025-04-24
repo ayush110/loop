@@ -17,6 +17,7 @@ from threading import Lock
 from sklearn.cluster import DBSCAN
 
 from itertools import combinations
+import os
 
 
 class Detector(Node):
@@ -152,18 +153,20 @@ class Detector(Node):
         with self.obstacle_mutex:
             filtered_objects = self.offline_filter_obstacles()
 
-        with open("detected_objects.csv", "w") as f:
-            f.write("class,x,y,z\n")
-            for obj in filtered_objects:
-                x, y, z = obj["position"]
-                f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+            with open("detected_objects.csv", "w") as f:
+                f.write("class,x,y,z\n")
+                for obj in filtered_objects:
+                    x, y, z = obj["position"]
+                    f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+                f.flush()
+                os.fsync(f.fileno())
 
-        self.publish_offline_filtered_obstacle_markers(filtered_objects)
-        self.get_logger().info("Filtered objects saved to detected_objects.csv")
+            self.publish_offline_filtered_obstacle_markers(filtered_objects)
+            self.get_logger().info("Filtered objects saved to detected_objects.csv")
 
-        # exit the node and everything
-        self.destroy_node()
-        rclpy.shutdown()
+            # exit the node and everything
+            self.destroy_node()
+            rclpy.shutdown()
 
     def offline_filter_obstacles(self):
         all_detections = []
@@ -335,7 +338,9 @@ class Detector(Node):
 
         self.filtered_obstacles_pub.publish(marker_array)
 
-    def _transform_point_in_map(self, point, from_frame="zed_camera_center", to_frame="map"):
+    def _transform_point_in_map(
+        self, point, from_frame="zed_camera_center", to_frame="map"
+    ):
         try:
             now = rclpy.time.Time()
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)

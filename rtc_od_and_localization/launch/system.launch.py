@@ -132,7 +132,6 @@ def generate_launch_description():
                 package="obj_det_visualizer",
                 executable="obj_visualizer",
                 name="obj_visualizer",
-                output="screen",
             ),
             # run rtab localization
             # Include the camera launch file if requested
