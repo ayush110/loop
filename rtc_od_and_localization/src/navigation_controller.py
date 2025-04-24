@@ -18,7 +18,7 @@ class BicycleModelNavigationNode(Node):
         super().__init__("bicycle_model_navigation_node")
 
         # Parameters for controlling the robot
-        self.goal_tolerance = 0.5  # 30 cm tolerance
+        self.goal_tolerance = 0.8  # 30 cm tolerance
         self.kp = 0.05  # Proportional constant for the PID controller
         self.max_speed = 0.5  # Max linear speed in m/s
         self.max_angular_velocity = 0.2  # Max angular velocity in rad/s
@@ -141,15 +141,10 @@ class BicycleModelNavigationNode(Node):
         # angle_diff = math.atan2(
         #     math.sin(angle_to_goal - heading), math.cos(angle_to_goal - heading)
         # )
-
-        # # Start with basic proportional control for steering
         # angular_velocity = self.kp * 0  # You can tune this gain
-
         # self.get_logger().info(
         #     f"Angle to goal: {math.degrees(angle_diff):.2f}°, Angular velocity: {angular_velocity:.2f}"
         # )
-
-        # # Now, calculate obstacle avoidance adjustments:
         # for obstacle in self.obstacles:
         #     obs_x, obs_y = obstacle
         #     # Calculate the distance to the obstacle
@@ -164,8 +159,6 @@ class BicycleModelNavigationNode(Node):
         #         angular_velocity += (
         #             1.0 / dist_to_obs * (self._get_robot_heading() - angle_to_obs)
         #         )
-
-        # # Apply some damping to prevent oscillations
         # angular_velocity = max(
         #     min(angular_velocity, self.max_angular_velocity), -self.max_angular_velocity
         # )
