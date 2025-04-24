@@ -25,7 +25,7 @@ class Detector(Node):
 
         self.CONF_THRESHOLD = 20.0
         self.MIN_ASSOCIATION_DISTANCE = 0.8  # meters
-        self.MAX_VIEW_DISTANCE = 3
+        self.MAX_VIEW_DISTANCE = 6
         self.MARKER_SIZE = 0.5  # meters
 
         self.SUPPORTED_OBJECTS = ["Person", "Vehicle"]
@@ -79,8 +79,6 @@ class Detector(Node):
                 position_map = self._transform_point_in_map(obj.position)
                 if position_map is None or np.isnan(position_map).any():
                     continue
-
-                self.get_logger().error(f"position in map: {position_map}")
 
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
