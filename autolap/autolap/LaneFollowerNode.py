@@ -83,16 +83,16 @@ class LaneFollowerNode(Node):
             left_x = average_x(left_lines)
             right_x = average_x(right_lines)
 
-            if left_x is not None and right_x is not None:
-                lane_center = (left_x + right_x) / 2
+            # if left_x is not None and right_x is not None:
+            #     lane_center = (left_x + right_x) / 2
 
-            for x1, y1, x2, y2 in left_lines + right_lines:
-                cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            # for x1, y1, x2, y2 in left_lines + right_lines:
+            #     cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
-            if left_x is not None:
-                cv2.line(output_image, (int(left_x), 0), (int(left_x), height), (255, 0, 0), 2)
-            if right_x is not None:
-                cv2.line(output_image, (int(right_x), 0), (int(right_x), height), (255, 0, 0), 2)
+            # if left_x is not None:
+            #     cv2.line(output_image, (int(left_x), 0), (int(left_x), height), (255, 0, 0), 2)
+            # if right_x is not None:
+            #     cv2.line(output_image, (int(right_x), 0), (int(right_x), height), (255, 0, 0), 2)
 
         cv2.line(output_image, (int(lane_center), 0), (int(lane_center), height), (0, 0, 255), 2)
         cv2.putText(output_image, f"Lane center: {int(lane_center)}",
