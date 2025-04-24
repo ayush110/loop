@@ -34,9 +34,9 @@ class Dash(Node):
         super().__init__('straight_line_pid')
 
         # Declare tunable parameters
-        self.declare_parameter('kp', 1.5)
-        self.declare_parameter('ki', 0.0)
-        self.declare_parameter('kd', 0.2)
+        self.declare_parameter('kp', 0.5)
+        self.declare_parameter('ki', 0.1)
+        self.declare_parameter('kd', 0.0)
 
         self.pid = PID(
             self.get_parameter('kp').value,
@@ -57,16 +57,22 @@ class Dash(Node):
         self.current_y = 0.0
         self.add_on_set_parameters_callback(self.param_callback)
 
+        self.get_logger().info('Started Node')
+
     def odom_callback(self, msg):
         self.current_y = msg.pose.pose.position.y
+        self.get_logger().info(f"Odom y: {self.current_y}")
 
     def control_loop(self):
         error = -self.current_y
         correction = self.pid.compute(error)
 
+        self.get_logger().info(f"Correction: {correction}")
+
         cmd = Twist()
-        cmd.linear.x = 0.2
+        cmd.linear.x = 2.0
         cmd.angular.z = correction
+        # cmd.angular.z = -0.02055 
 
         self.publisher.publish(cmd)
 
@@ -94,9 +100,9 @@ if __name__ == '__main__':
 
 """ros2 run autolap Dash \
   --ros-args \
-  -p kp:=2.0 \
-  -p ki:=0.05 \
-  -p kd:=0.3
+  -p kp:=0.5 \
+  -p ki:=0.1 \
+  -p kd:=0.0
 
   rqt_plot /zed/zed_node/odom/pose/pose/position/y
 """

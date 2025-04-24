@@ -14,8 +14,10 @@ from tf2_geometry_msgs.tf2_geometry_msgs import do_transform_point
 from visualization_msgs.msg import Marker, MarkerArray
 from zed_interfaces.msg import ObjectsStamped, Object
 from threading import Lock
+from sklearn.cluster import DBSCAN
 
 from itertools import combinations
+import os
 
 
 class Detector(Node):
@@ -24,7 +26,7 @@ class Detector(Node):
 
         self.CONF_THRESHOLD = 20.0
         self.MIN_ASSOCIATION_DISTANCE = 0.8  # meters
-        self.MAX_VIEW_DISTANCE = 3
+        self.MAX_VIEW_DISTANCE = 6
         self.MARKER_SIZE = 0.5  # meters
 
         self.SUPPORTED_OBJECTS = ["Person", "Vehicle"]
@@ -37,13 +39,13 @@ class Detector(Node):
         self.obstacle_pub = self.create_publisher(
             ObjectsStamped, "/processed_obstacles", 10
         )
-        # self.obstacle_timer = self.create_timer(
-        #     0.5, self.published_unfiltered_obstacles
-        # )
 
         self.log_pub = self.create_publisher(String, "/detected_objects_log", 10)
-        self.marker_pub = self.create_publisher(
+        self.detected_obstacles_pub = self.create_publisher(
             MarkerArray, "/detected_objects_markers", 10
+        )
+        self.filtered_obstacles_pub = self.create_publisher(
+            MarkerArray, "/filtered_objects_markers", 10
         )
 
         self.create_subscription(
@@ -76,34 +78,37 @@ class Detector(Node):
                     continue
 
                 position_map = self._transform_point_in_map(obj.position)
-                if not position_map or np.isnan(position_map).any():
+                if position_map is None or np.isnan(position_map).any():
                     continue
 
-                self.get_logger().error(f"position in map: {position_map}")
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-                self.detected_objects = self.non_maximum_suppression(
-                    self.detected_objects
-                )
+                # self.detected_objects = self.non_maximum_suppression(
+                #     self.detected_objects
+                # )
 
             # change to either publish all received objects or just the best ones
-            self.publish_detected_objects_markers()
+            self.publish_detected_obstacle_markers()
+
             self.published_unfiltered_obstacles()
 
-    def merge_static_obstacle(self, label, position, confidence):
+    def merge_static_obstacle(self, label, position, confidence, merge_existing=False):
         obj_list = self.detected_objects[label]
 
-        for entry in obj_list:
-            dist = np.linalg.norm(entry["avg_position"] - position)
-            if dist < self.MIN_ASSOCIATION_DISTANCE:
-                # Merge into existing tracked object
-                entry["position_sum"] += position
-                entry["confidence_total"] += confidence
-                entry["count"] += 1
+        if merge_existing:
+            for entry in obj_list:
+                dist = np.linalg.norm(entry["avg_position"] - position)
+                if dist < self.MIN_ASSOCIATION_DISTANCE:
+                    # Merge into existing tracked object
+                    entry["position_sum"] += position
+                    entry["confidence_total"] += confidence
+                    entry["count"] += 1
 
-                entry["confidence"] = float(entry["confidence_total"] / entry["count"])
-                entry["avg_position"] = entry["position_sum"] / entry["count"]
-                return
+                    entry["confidence"] = float(
+                        entry["confidence_total"] / entry["count"]
+                    )
+                    entry["avg_position"] = entry["position_sum"] / entry["count"]
+                    return
 
         # No close object found, create new one
         obj_list.append(
@@ -116,105 +121,129 @@ class Detector(Node):
             }
         )
 
-    def non_maximum_suppression(self, objects_by_label):
-        final_objects = {}
+    # def non_maximum_suppression(self, objects_by_label):
+    #     final_objects = {}
 
-        for label, objects in objects_by_label.items():
-            if not objects:
-                continue
+    #     for label, objects in objects_by_label.items():
+    #         if not objects:
+    #             continue
 
-            # Sort by confidence descending
-            sorted_objects = sorted(objects, key=lambda o: -o["confidence"])
+    #         # Sort by confidence descending
+    #         sorted_objects = sorted(objects, key=lambda o: -o["confidence"])
 
-            kept = []
-            while sorted_objects:
-                current = sorted_objects.pop(0)
-                kept.append(current)
+    #         kept = []
+    #         while sorted_objects:
+    #             current = sorted_objects.pop(0)
+    #             kept.append(current)
 
-                # Remove all others that are too close to `current`
-                sorted_objects = [
-                    o
-                    for o in sorted_objects
-                    if np.linalg.norm(o["avg_position"] - current["avg_position"])
-                    >= self.MIN_ASSOCIATION_DISTANCE
-                ]
+    #             # Remove all others that are too close to `current`
+    #             sorted_objects = [
+    #                 o
+    #                 for o in sorted_objects
+    #                 if np.linalg.norm(o["avg_position"] - current["avg_position"])
+    #                 >= self.MIN_ASSOCIATION_DISTANCE
+    #             ]
 
-            final_objects[label] = kept
+    #         final_objects[label] = kept
 
-        return final_objects
+    #     return final_objects
 
     def goal_reached_callback(self, msg):
         # now filter_top_3() returns exactly what we need for CSV
-        filtered_objects = self.filter_top_3()
+        with self.obstacle_mutex:
+            filtered_objects = self.offline_filter_obstacles()
 
-        with open("detected_objects.csv", "w") as f:
-            f.write("class,x,y,z\n")
-            for obj in filtered_objects:
-                x, y, z = obj["position"]
-                f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+            with open("detected_objects.csv", "w") as f:
+                f.write("class,x,y,z\n")
+                for obj in filtered_objects:
+                    x, y, z = obj["position"]
+                    f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+                f.flush()
+                os.fsync(f.fileno())
 
-    def filter_top_3(self):
-        people = self.detected_objects.get("Person", [])
-        vehicles = self.detected_objects.get("Vehicle", [])
+            self.publish_offline_filtered_obstacle_markers(filtered_objects)
+            self.get_logger().info("Filtered objects saved to detected_objects.csv")
 
-        # Fallback: not enough to do 2P+1V?  Return top-3 by confidence across all.
-        if len(people) < 2 or len(vehicles) < 1:
-            all_objs = []
-            for label, entries in self.detected_objects.items():
-                for e in entries:
-                    all_objs.append(
-                        {
-                            "class": label,
-                            "position": e["avg_position"],
-                            "confidence": e["confidence"],
-                        }
-                    )
-            # just pick the top-3 by confidence
-            return sorted(all_objs, key=lambda o: -o["confidence"])[:3]
+        # exit the node and everything
+        self.destroy_node()
+        rclpy.shutdown()
 
-        best_score = (-1.0, -1.0)  # (min_pairwise_dist, total_confidence)
-        best_triple = None
+    def offline_filter_obstacles(self):
+        all_detections = []
 
-        # Brute-force every (2 people, 1 vehicle) combination
-        for p1, p2 in combinations(people, 2):
-            pos1 = np.array(p1["avg_position"])
-            pos2 = np.array(p2["avg_position"])
-            for v in vehicles:
-                pos_v = np.array(v["avg_position"])
+        for label, entries in self.detected_objects.items():
+            for e in entries:
+                all_detections.append(
+                    {
+                        "label": label,
+                        "position": e["avg_position"],
+                        "confidence": e["confidence"],
+                    }
+                )
 
-                # compute the three pairwise distances
-                d12 = np.linalg.norm(pos1 - pos2)
-                d1v = np.linalg.norm(pos1 - pos_v)
-                d2v = np.linalg.norm(pos2 - pos_v)
-                min_dist = min(d12, d1v, d2v)
+        if not all_detections:
+            self.get_logger().warning("No detections to cluster.")
+            return []
 
-                # tie-breaker: sum of confidences
-                total_conf = p1["confidence"] + p2["confidence"] + v["confidence"]
+        positions = np.array([d["position"] for d in all_detections])
+        confidences = np.array([d["confidence"] for d in all_detections])
+        labels = [d["label"] for d in all_detections]
 
-                score = (min_dist, total_conf)
-                if score > best_score:
-                    best_score = score
-                    best_triple = (p1, p2, v)
+        # DBSCAN clustering
+        clustering = DBSCAN(eps=0.8, min_samples=1).fit(positions)
+        cluster_ids = clustering.labels_
 
-        # Unpack into simple dicts for CSV
-        p1, p2, v = best_triple
-        return [
-            {
-                "class": "Person",
-                "position": p1["avg_position"],
-                "confidence": p1["confidence"],
-            },
-            {
-                "class": "Person",
-                "position": p2["avg_position"],
-                "confidence": p2["confidence"],
-            },
-            {
-                "class": "Vehicle",
-                "position": v["avg_position"],
-                "confidence": v["confidence"],
-            },
-        ]
+        clusters = {}
+        for i, cluster_id in enumerate(cluster_ids):
+            if cluster_id not in clusters:
+                clusters[cluster_id] = {
+                    "positions": [],
+                    "confidences": [],
+                    "labels": [],
+                }
+            clusters[cluster_id]["positions"].append(positions[i])
+            clusters[cluster_id]["confidences"].append(confidences[i])
+            clusters[cluster_id]["labels"].append(labels[i])
+
+        merged_detections = []
+        for cluster_id, data in clusters.items():
+            pos_array = np.array(data["positions"])
+            conf_array = np.array(data["confidences"])
+            label_array = data["labels"]
+
+            total_conf = conf_array.sum()
+            weighted_pos = np.average(pos_array, axis=0, weights=conf_array)
+            majority_label = max(set(label_array), key=label_array.count)
+
+            merged_detections.append(
+                {
+                    "class": majority_label,
+                    "position": weighted_pos,
+                    "confidence": total_conf,
+                }
+            )
+
+        # Try to find 2 Person + 1 Vehicle combo with highest confidence
+        people = [d for d in merged_detections if d["class"] == "Person"]
+        vehicles = [d for d in merged_detections if d["class"] == "Vehicle"]
+
+        if len(people) >= 1 and len(vehicles) >= 2:
+            best_score = -1.0
+            best_triple = None
+
+            for v1, v2 in combinations(vehicles, 2):
+                for p in people:
+                    total_conf = v1["confidence"] + v2["confidence"] + p["confidence"]
+                    if total_conf > best_score:
+                        best_score = total_conf
+                        best_triple = [v1, v2, p]
+
+            return best_triple
+
+        # Fallback: return top-3 by confidence
+        self.get_logger().error("Did not find 2P+1V in clusters, returning top-3")
+        # TODO: CHANGE THIS BACK TO 3
+        return sorted(merged_detections, key=lambda d: -d["confidence"])  # [:3]
 
     def published_unfiltered_obstacles(self):
         output_msg = ObjectsStamped()
@@ -231,28 +260,10 @@ class Detector(Node):
 
         self.obstacle_pub.publish(output_msg)
 
-    def publish_detected_objects_markers(self):
+    def publish_detected_obstacle_markers(self):
         marker_array = MarkerArray()
         marker_id = 0
         selected_objects = []
-
-        # # Top 1 Vehicle
-        # if "Vehicle" in self.detected_objects:
-        #     cars = sorted(
-        #         self.detected_objects["Vehicle"],
-        #         key=lambda o: -(o["confidence_total"] / o["count"]),
-        #     )
-        #     if cars:
-        #         selected_objects.append(("Vehicle", cars[0]["avg_position"]))
-
-        # # Top 2 People
-        # if "Person" in self.detected_objects:
-        #     people = sorted(
-        #         self.detected_objects["Person"],
-        #         key=lambda o: -(o["confidence_total"] / o["count"]),
-        #     )
-        #     for person in people[:2]:
-        #         selected_objects.append(("Person", person["avg_position"]))
 
         for label, detections in self.detected_objects.items():
             for detection in detections:
@@ -262,6 +273,43 @@ class Detector(Node):
 
         # Publish only selected markers
         for label, position, confidence in selected_objects:
+            x, y, z = position
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = label
+            marker.id = marker_id
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            marker.pose.position.x = float(x)
+            marker.pose.position.y = float(y)
+            marker.pose.position.z = 0.0
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = self.MARKER_SIZE / 2.0
+            marker.scale.y = self.MARKER_SIZE / 2.0
+            marker.scale.z = self.MARKER_SIZE / 2.0
+            marker.color = (
+                ColorRGBA(r=0.0, g=1.0, b=0.0, a=confidence / 100.0)  # green for Person
+                if label == "Person"
+                else ColorRGBA(
+                    r=0.0, g=0.0, b=1.0, a=confidence / 100.0
+                )  # blue for Vehicle
+            )
+            marker.lifetime = Duration(sec=2)
+            marker_array.markers.append(marker)
+            marker_id += 1
+
+        self.detected_obstacles_pub.publish(marker_array)
+
+    def publish_offline_filtered_obstacle_markers(self, filtered_obstacles):
+        marker_array = MarkerArray()
+        marker_id = 0
+        for obstacle in filtered_obstacles:
+            position = obstacle["position"]
+            label = obstacle["class"]
+            confidence = obstacle["confidence"]
+
+            # Create a marker for each detected object
             x, y, z = position
             marker = Marker()
             marker.header.frame_id = "map"
@@ -288,9 +336,11 @@ class Detector(Node):
             marker_array.markers.append(marker)
             marker_id += 1
 
-        self.marker_pub.publish(marker_array)
+        self.filtered_obstacles_pub.publish(marker_array)
 
-    def _transform_point_in_map(self, point, from_frame="base_link", to_frame="map"):
+    def _transform_point_in_map(
+        self, point, from_frame="base_link", to_frame="map"
+    ):
         try:
             now = rclpy.time.Time()
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
