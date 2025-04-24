@@ -11,13 +11,11 @@ class LaneFollowerNode(Node):
         super().__init__('lane_follower')
 
         self.bridge = CvBridge()
-        self.image_sub = self.create_subscription(Image, '/zed/zed_node/left/image_rect_color', self.image_callback, 10)
+        self.image_sub = self.create_subscription(Image, '/zed/left/image_rect_color', self.image_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.image_pub = self.create_publisher(Image, '/lane_detection/image', 10)
 
-        self.get_logger().info(f'Started Node')
-
-    def crop_bottom_half(self, image, ratio=0.5):
+    def crop_bottom_half(self, image, ratio=0.3):
         height = image.shape[0]
         start_row = int(height * (1 - ratio))
         return image[start_row:, :]
@@ -105,7 +103,7 @@ class LaneFollowerNode(Node):
     def calculate_steering_angle(self, lane_center, image_width):
         error = lane_center - image_width // 2
         max_error = image_width // 2
-        return error / max_error 
+        return error / max_error * 0.3
 
     def image_callback(self, msg):
         try:
@@ -117,8 +115,6 @@ class LaneFollowerNode(Node):
         cropped = self.crop_bottom_half(cv_image)
         processed_image, lane_center = self.process_image(cropped)
         angle = self.calculate_steering_angle(lane_center, cropped.shape[1])
-
-        self.get_logger().info(f'Steering Angle: {angle}')
 
         twist_msg = Twist()
         twist_msg.linear.x = 0.2  # constant speed
