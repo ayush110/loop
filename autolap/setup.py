@@ -25,6 +25,8 @@ setup(
             'lanefollower2 = autolap.LaneFollowerNode2:main',
             'lanefollower3 = autolap.LaneFollowerNode3:main',
             'Dash = autolap.Dash:main',
+            'onnx = autolap.onnx:main',
+            'person = autolap.PersonFollower:main'
         ],
     },
 )

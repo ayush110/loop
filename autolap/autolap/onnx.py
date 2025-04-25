@@ -17,7 +17,7 @@ class onnx(Node):
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.image_pub = self.create_publisher(Image, '/lane_detection/image', 10)
 
-        self.session = ort.InferenceSession('culane_res18.onnx')  # Update with actual model path
+        self.session = ort.InferenceSession('./culane_res18.onnx')  # Update with actual model path
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
         self.image_width = None

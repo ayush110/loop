@@ -5,15 +5,20 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+import math
 
 class LaneFollowerNode(Node):
     def __init__(self):
         super().__init__('lane_follower')
 
         self.bridge = CvBridge()
-        self.image_sub = self.create_subscription(Image, '/zed/left/image_rect_color', self.image_callback, 10)
+        self.image_sub = self.create_subscription(Image, '/zed/zed_node/left/image_rect_color', self.image_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.image_pub = self.create_publisher(Image, '/lane_detection/image', 10)
+        #self.depth_sub = self.create_subscription(Image, '/zed/depth/depth_registered', self.depth_image_callback, 10)
+        #self.latest_depth_image = None
+
+        self.get_logger().info(f'Started Node')
 
     def crop_bottom_half(self, image, ratio=0.3):
         height = image.shape[0]
@@ -22,18 +27,13 @@ class LaneFollowerNode(Node):
 
     def isolate_white(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lower_white = np.array([0, 0, 180])
-        upper_white = np.array([180, 60, 255])
+        lower_white = np.array([0, 0, 200])
+        upper_white = np.array([180, 30, 255])
         return cv2.inRange(hsv, lower_white, upper_white)
 
-    def is_horizontal_or_vertical(self, x1, y1, x2, y2, threshold=0.1):
-        dx = abs(x2 - x1)
-        dy = abs(y2 - y1)
-        if dx == 0 or dx < threshold * dy:
-            return True  # Vertical
-        if dy == 0 or dy < threshold * dx:
-            return True  # Horizontal
-        return False
+    def is_horizontal_or_vertical(self, x1, y1, x2, y2, threshold=10):
+        angle = abs(math.degrees(math.atan2(y2-y1, x2-x1)))
+        return angle < threshold or angle > 180
 
     def process_image(self, image):
         white_mask = self.isolate_white(image)
@@ -62,6 +62,9 @@ class LaneFollowerNode(Node):
         left_lines = []
         right_lines = []
 
+        left_x = None
+        right_x = None
+
         if lines is not None:
             for line in lines:
                 for x1, y1, x2, y2 in line:
@@ -81,16 +84,16 @@ class LaneFollowerNode(Node):
             left_x = average_x(left_lines)
             right_x = average_x(right_lines)
 
-            # if left_x is not None and right_x is not None:
-            #     lane_center = (left_x + right_x) / 2
+            if left_x is not None and right_x is not None:
+                lane_center = (left_x + right_x) / 2
 
-            # for x1, y1, x2, y2 in left_lines + right_lines:
-            #     cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            for x1, y1, x2, y2 in left_lines + right_lines:
+                cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
-            # if left_x is not None:
-            #     cv2.line(output_image, (int(left_x), 0), (int(left_x), height), (255, 0, 0), 2)
-            # if right_x is not None:
-            #     cv2.line(output_image, (int(right_x), 0), (int(right_x), height), (255, 0, 0), 2)
+            if left_x is not None:
+                cv2.line(output_image, (int(left_x), 0), (int(left_x), height), (255, 0, 0), 2)
+            if right_x is not None:
+                cv2.line(output_image, (int(right_x), 0), (int(right_x), height), (255, 0, 0), 2)
 
         cv2.line(output_image, (int(lane_center), 0), (int(lane_center), height), (0, 0, 255), 2)
         cv2.putText(output_image, f"Lane center: {int(lane_center)}",
@@ -98,12 +101,28 @@ class LaneFollowerNode(Node):
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
         cv2.circle(output_image, (int(lane_center), height - 30), 10, (255, 0, 0), -1)
 
-        return output_image, lane_center
+        return output_image, lane_center, left_x, right_x
 
     def calculate_steering_angle(self, lane_center, image_width):
         error = lane_center - image_width // 2
         max_error = image_width // 2
         return error / max_error * 0.3
+
+    def get_depth_at_point(self, x, y):
+        if self.latest_depth_image is None:
+            return None
+        h, w = self.latest_depth_image.shape
+        x = numpy.clip(int(x), 0, w-1)
+        y = numpy.clip(int(y), 0, h-1)
+        depth = float(self.latest_depth_image[y,x])
+        self.get_logger().info(f"Latest Depth Image: {depth}")
+        return depth
+
+    def depth_image_callback(self, msg):
+        try:
+            self.latest_depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')
+        except Exception as e:
+            self.get_logger().error(f"Depth image conversion error: {e}")    
 
     def image_callback(self, msg):
         try:
@@ -113,8 +132,10 @@ class LaneFollowerNode(Node):
             return
 
         cropped = self.crop_bottom_half(cv_image)
-        processed_image, lane_center = self.process_image(cropped)
+        processed_image, lane_center, left_x, right_x = self.process_image(cropped)
         angle = self.calculate_steering_angle(lane_center, cropped.shape[1])
+
+        self.get_logger().info(f'Steering Angle: {angle}')
 
         twist_msg = Twist()
         twist_msg.linear.x = 0.2  # constant speed

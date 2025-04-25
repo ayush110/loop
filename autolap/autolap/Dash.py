@@ -70,9 +70,9 @@ class Dash(Node):
         self.get_logger().info(f"Correction: {correction}")
 
         cmd = Twist()
-        cmd.linear.x = 2.0
-        cmd.angular.z = correction
-        # cmd.angular.z = -0.02055 
+        cmd.linear.x = 1.0
+        #cmd.angular.z = correction
+        cmd.angular.z = -0.0205
 
         self.publisher.publish(cmd)
 
