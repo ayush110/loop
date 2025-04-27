@@ -60,38 +60,38 @@ class Detector(Node):
         )
 
     def object_detection_callback(self, msg: ObjectsStamped):        
-        for obj in msg.objects:
-            if obj.label not in self.SUPPORTED_OBJECTS:
-                continue
-            if obj.confidence < self.CONF_THRESHOLD:
-                self.get_logger().info(
-                    f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
-                )
-                continue
+        with self.obstacle_mutex:
 
-            distance_from_camera = np.linalg.norm(obj.position)
-            if distance_from_camera > self.MAX_VIEW_DISTANCE:
-                self.get_logger().info(
-                    f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
-                )
-                continue
+            for obj in msg.objects:
+                if obj.label not in self.SUPPORTED_OBJECTS:
+                    continue
+                if obj.confidence < self.CONF_THRESHOLD:
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
+                    )
+                    continue
 
-            stamp = rclpy.time.Time.from_msg(msg.header.stamp)
+                distance_from_camera = np.linalg.norm(obj.position)
+                if distance_from_camera > self.MAX_VIEW_DISTANCE:
+                    self.get_logger().info(
+                        f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
+                    )
+                    continue
 
-            position_map = self._transform_point_in_map(obj.position, stamp)
-            if position_map is None or np.isnan(position_map).any():
-                continue
-            
-            with self.obstacle_mutex:
+                stamp = rclpy.time.Time.from_msg(msg.header.stamp)
+
+                position_map = self._transform_point_in_map(obj.position, stamp)
+                if position_map is None or np.isnan(position_map).any():
+                    continue
+                
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
-                # self.detected_objects = self.non_maximum_suppression(
-                #     self.detected_objects
-                # )
+                    # self.detected_objects = self.non_maximum_suppression(
+                    #     self.detected_objects
+                    # )
 
             # change to either publish all received objects or just the best ones
             self.publish_detected_obstacle_markers()
-
             self.published_unfiltered_obstacles()
 
     def merge_static_obstacle(self, label, position, confidence, merge_existing=False):
@@ -317,11 +317,10 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
-            now = rclpy.time.Time()
-            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, now)
+            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
 
             point_stamped = PointStamped()
-            point_stamped.header.stamp = now.to_msg()
+            point_stamped.header.stamp = stamp.to_msg()
             point_stamped.header.frame_id = from_frame
             point_stamped.point.x = float(point[0])
             point_stamped.point.y = float(point[1])
