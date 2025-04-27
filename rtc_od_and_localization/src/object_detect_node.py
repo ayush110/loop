@@ -59,28 +59,30 @@ class Detector(Node):
             PoseStamped, "/goal_reached", self.goal_reached_callback, 10
         )
 
-    def object_detection_callback(self, msg: ObjectsStamped):
-        with self.obstacle_mutex:
-            for obj in msg.objects:
-                if obj.label not in self.SUPPORTED_OBJECTS:
-                    continue
-                if obj.confidence < self.CONF_THRESHOLD:
-                    self.get_logger().info(
-                        f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
-                    )
-                    continue
+    def object_detection_callback(self, msg: ObjectsStamped):        
+        for obj in msg.objects:
+            if obj.label not in self.SUPPORTED_OBJECTS:
+                continue
+            if obj.confidence < self.CONF_THRESHOLD:
+                self.get_logger().info(
+                    f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
+                )
+                continue
 
-                distance_from_camera = np.linalg.norm(obj.position)
-                if distance_from_camera > self.MAX_VIEW_DISTANCE:
-                    self.get_logger().info(
-                        f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
-                    )
-                    continue
+            distance_from_camera = np.linalg.norm(obj.position)
+            if distance_from_camera > self.MAX_VIEW_DISTANCE:
+                self.get_logger().info(
+                    f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
+                )
+                continue
 
-                position_map = self._transform_point_in_map(obj.position)
-                if position_map is None or np.isnan(position_map).any():
-                    continue
+            stamp = rclpy.time.Time.from_msg(msg.header.stamp)
 
+            position_map = self._transform_point_in_map(obj.position, stamp)
+            if position_map is None or np.isnan(position_map).any():
+                continue
+            
+            with self.obstacle_mutex:
                 self.merge_static_obstacle(obj.label, position_map, obj.confidence)
 
                 # self.detected_objects = self.non_maximum_suppression(
@@ -121,33 +123,6 @@ class Detector(Node):
             }
         )
 
-    # def non_maximum_suppression(self, objects_by_label):
-    #     final_objects = {}
-
-    #     for label, objects in objects_by_label.items():
-    #         if not objects:
-    #             continue
-
-    #         # Sort by confidence descending
-    #         sorted_objects = sorted(objects, key=lambda o: -o["confidence"])
-
-    #         kept = []
-    #         while sorted_objects:
-    #             current = sorted_objects.pop(0)
-    #             kept.append(current)
-
-    #             # Remove all others that are too close to `current`
-    #             sorted_objects = [
-    #                 o
-    #                 for o in sorted_objects
-    #                 if np.linalg.norm(o["avg_position"] - current["avg_position"])
-    #                 >= self.MIN_ASSOCIATION_DISTANCE
-    #             ]
-
-    #         final_objects[label] = kept
-
-    #     return final_objects
-
     def goal_reached_callback(self, msg):
         # now filter_top_3() returns exactly what we need for CSV
         with self.obstacle_mutex:
@@ -165,8 +140,8 @@ class Detector(Node):
             self.get_logger().info("Filtered objects saved to detected_objects.csv")
 
         # exit the node and everything
-        self.destroy_node()
-        rclpy.shutdown()
+        # self.destroy_node()
+        # rclpy.shutdown()
 
     def offline_filter_obstacles(self):
         all_detections = []
@@ -339,7 +314,7 @@ class Detector(Node):
         self.filtered_obstacles_pub.publish(marker_array)
 
     def _transform_point_in_map(
-        self, point, from_frame="base_link", to_frame="map"
+        self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
             now = rclpy.time.Time()

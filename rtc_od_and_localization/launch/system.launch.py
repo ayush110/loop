@@ -126,12 +126,13 @@ def generate_launch_description():
                 package="rtc_od_and_localization",
                 executable="navigation_controller.py",
                 name="navigation_controller",
-                output="screen",
+                output="log",
             ),
             Node(
                 package="obj_det_visualizer",
                 executable="obj_visualizer",
                 name="obj_visualizer",
+                output="log"
             ),
             # run rtab localization
             # Include the camera launch file if requested
