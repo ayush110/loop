@@ -59,40 +59,40 @@ class Detector(Node):
             PoseStamped, "/goal_reached", self.goal_reached_callback, 10
         )
 
-    def object_detection_callback(self, msg: ObjectsStamped):        
+    def object_detection_callback(self, msg: ObjectsStamped):
+        updates = []  # store objects to merge
+
+        for obj in msg.objects:
+            if obj.label not in self.SUPPORTED_OBJECTS:
+                continue
+            if obj.confidence < self.CONF_THRESHOLD:
+                # Optionally move log outside
+                self.get_logger().info(
+                    f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
+                )
+                continue
+
+            distance_from_camera = np.linalg.norm(obj.position)
+            if distance_from_camera > self.MAX_VIEW_DISTANCE:
+                self.get_logger().info(
+                    f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
+                )
+                continue
+
+            stamp = rclpy.time.Time.from_msg(msg.header.stamp)
+            position_map = self._transform_point_in_map(obj.position, stamp)
+            if position_map is None or np.isnan(position_map).any():
+                continue
+
+            updates.append((obj.label, position_map, obj.confidence))
+
+        # Minimal critical section
         with self.obstacle_mutex:
+            for label, pos, conf in updates:
+                self.merge_static_obstacle(label, pos, conf)
 
-            for obj in msg.objects:
-                if obj.label not in self.SUPPORTED_OBJECTS:
-                    continue
-                if obj.confidence < self.CONF_THRESHOLD:
-                    self.get_logger().info(
-                        f"Filtering object: {obj.label} confidence is {obj.confidence} < {self.CONF_THRESHOLD}"
-                    )
-                    continue
-
-                distance_from_camera = np.linalg.norm(obj.position)
-                if distance_from_camera > self.MAX_VIEW_DISTANCE:
-                    self.get_logger().info(
-                        f"Filtering object: {obj.label} distance is {distance_from_camera} > {self.MAX_VIEW_DISTANCE}"
-                    )
-                    continue
-
-                stamp = rclpy.time.Time.from_msg(msg.header.stamp)
-
-                position_map = self._transform_point_in_map(obj.position, stamp)
-                if position_map is None or np.isnan(position_map).any():
-                    continue
-                
-                self.merge_static_obstacle(obj.label, position_map, obj.confidence)
-
-                    # self.detected_objects = self.non_maximum_suppression(
-                    #     self.detected_objects
-                    # )
-
-            # change to either publish all received objects or just the best ones
-            self.publish_detected_obstacle_markers()
-            self.published_unfiltered_obstacles()
+        self.publish_detected_obstacle_markers()
+        self.published_unfiltered_obstacles()
 
     def merge_static_obstacle(self, label, position, confidence, merge_existing=False):
         obj_list = self.detected_objects[label]
@@ -124,24 +124,24 @@ class Detector(Node):
         )
 
     def goal_reached_callback(self, msg):
-        # now filter_top_3() returns exactly what we need for CSV
+        # Only locking when accessing detected_objects
         with self.obstacle_mutex:
             filtered_objects = self.offline_filter_obstacles()
 
-            with open("detected_objects.csv", "w") as f:
-                f.write("class,x,y,z\n")
-                for obj in filtered_objects:
-                    x, y, z = obj["position"]
-                    f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
-                f.flush()
-                os.fsync(f.fileno())
+        # Write CSV and publish markers outside lock
+        with open("detected_objects.csv", "w") as f:
+            f.write("class,x,y,z\n")
+            for obj in filtered_objects:
+                x, y, z = obj["position"]
+                f.write(f"{obj['class']},{x:.3f},{y:.3f},{z:.3f}\n")
+            f.flush()
+            os.fsync(f.fileno())
 
-            self.publish_offline_filtered_obstacle_markers(filtered_objects)
-            self.get_logger().info("Filtered objects saved to detected_objects.csv")
+        self.publish_offline_filtered_obstacle_markers(filtered_objects)
+        self.get_logger().info("Filtered objects saved to detected_objects.csv")
 
-        # exit the node and everything
-        # self.destroy_node()
-        # rclpy.shutdown()
+        self.destroy_node()
+        rclpy.shutdown()
 
     def offline_filter_obstacles(self):
         all_detections = []
@@ -317,6 +317,17 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
+            if not self.tf_buffer.can_transform(
+                to_frame,
+                from_frame,
+                stamp,
+                timeout=rclpy.duration.Duration(seconds=0.1),
+            ):
+                self.get_logger().warn(
+                    f"No transform available from {from_frame} to {to_frame}"
+                )
+                return None
+
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
 
             point_stamped = PointStamped()
