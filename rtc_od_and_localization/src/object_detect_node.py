@@ -317,17 +317,6 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
-            if not self.tf_buffer.can_transform(
-                to_frame,
-                from_frame,
-                stamp,
-                timeout=rclpy.duration.Duration(seconds=0.1),
-            ):
-                self.get_logger().warn(
-                    f"No transform available from {from_frame} to {to_frame}"
-                )
-                return None
-
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
 
             point_stamped = PointStamped()
