@@ -12,6 +12,7 @@ from threading import Lock
 
 from zed_interfaces.msg import ObjectsStamped  # (FOR USE ON REAL ROBOT)
 
+import time 
 
 class BicycleModelNavigationNode(Node):
 
@@ -132,7 +133,7 @@ class BicycleModelNavigationNode(Node):
             self.goal_completed_pub.publish(self.goal_pose)
             self._stop_robot()
 
-            rclpy.sleep(1.0)  # Wait for a second before stopping
+            time.sleep(1.0)  # Wait for a second before stopping
             self.destroy_node()
             rclpy.shutdown()
             return

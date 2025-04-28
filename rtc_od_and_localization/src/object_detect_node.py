@@ -188,7 +188,8 @@ class Detector(Node):
             label_array = data["labels"]
 
             total_conf = conf_array.sum()
-            weighted_pos = np.average(pos_array, axis=0, weights=conf_array)
+            #weighted_pos = np.average(pos_array, axis=0, weights=conf_array)
+            weighted_pos = pos_array[pos_array[:, 0] == pos_array[:, 0].max()][0]
             majority_label = max(set(label_array), key=label_array.count)
 
             merged_detections.append(
@@ -318,8 +319,7 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
-            time.sleep(1.0)
-            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
+            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, rclpy.time.Time())
 
             point_stamped = PointStamped()
             point_stamped.header.stamp = stamp.to_msg()
