@@ -18,6 +18,7 @@ from sklearn.cluster import DBSCAN
 
 from itertools import combinations
 import os
+import time
 
 
 class Detector(Node):
@@ -317,6 +318,7 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
+            time.sleep(1.0)
             trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
 
             point_stamped = PointStamped()
