@@ -13,7 +13,7 @@ class PersonFollower(Node):
             '/zed/zed_node/obj_det/objects',
             self.listener_callback,
             10)
-        self.velocity_publisher = self.create_publisher(Twist, '/person_cmd_vel', 10)
+        #self.velocity_publisher = self.create_publisher(Twist, '/person_cmd_vel', 10)
         self.error_publisher = self.create_publisher(Float32, '/person_lateral_error', 10)  # <-- NEW
 
         self.target_distance = 1.0
@@ -36,10 +36,10 @@ class PersonFollower(Node):
                 self.error_publisher.publish(error_msg)
 
                 # (optional) still publish a cmd_vel if you want for debug
-                cmd = Twist()
-                cmd.linear.x = 0.5
-                cmd.angular.z = self.kp_angular * lateral_error
-                self.velocity_publisher.publish(cmd)
+                # cmd = Twist()
+                # cmd.linear.x = 0.5
+                # cmd.angular.z = self.kp_angular * lateral_error
+                # self.velocity_publisher.publish(cmd)
 
                 self.get_logger().info(f"Person lateral error: {lateral_error:.2f}")
                 break
