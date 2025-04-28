@@ -32,6 +32,7 @@ class Detector(Node):
 
         self.SUPPORTED_OBJECTS = ["Person", "Vehicle"]
         self.detected_objects = {label: [] for label in self.SUPPORTED_OBJECTS}
+        self.raw_detections = []
         self.obstacle_mutex = Lock()
 
         self.tf_buffer = Buffer()
@@ -87,10 +88,11 @@ class Detector(Node):
 
             updates.append((obj.label, position_map, obj.confidence))
 
-        # Minimal critical section
-        with self.obstacle_mutex:
-            for label, pos, conf in updates:
-                self.merge_static_obstacle(label, pos, conf)
+            # Minimal critical section
+            with self.obstacle_mutex:
+                self.raw_detections.append(
+                    (obj.label, np.array(obj.position), obj.confidence, stamp)
+                )
 
         self.publish_detected_obstacle_markers()
         self.published_unfiltered_obstacles()
@@ -127,6 +129,17 @@ class Detector(Node):
     def goal_reached_callback(self, msg):
         # Only locking when accessing detected_objects
         with self.obstacle_mutex:
+            transformed_detections = []
+            for label, position, confidence, stamp in self.raw_detections:
+                position_map = self._transform_point_in_map(position, stamp)
+                if position_map is not None and not np.isnan(position_map).any():
+                    transformed_detections.append((label, position_map, confidence))
+
+            # Reset detected_objects and fill with merged transformed detections
+            self.detected_objects = {label: [] for label in self.SUPPORTED_OBJECTS}
+            for label, pos, conf in transformed_detections:
+                self.merge_static_obstacle(label, pos, conf, merge_existing=True)
+
             filtered_objects = self.offline_filter_obstacles()
 
         # Write CSV and publish markers outside lock
@@ -188,8 +201,8 @@ class Detector(Node):
             label_array = data["labels"]
 
             total_conf = conf_array.sum()
-            #weighted_pos = np.average(pos_array, axis=0, weights=conf_array)
-            weighted_pos = pos_array[pos_array[:, 0] == pos_array[:, 0].max()][0]
+            weighted_pos = np.average(pos_array, axis=0, weights=conf_array)
+            # weighted_pos = pos_array[pos_array[:, 0] == pos_array[:, 0].max()][0]
             majority_label = max(set(label_array), key=label_array.count)
 
             merged_detections.append(
@@ -319,7 +332,9 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
-            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, rclpy.time.Time())
+            trans = self.tf_buffer.lookup_transform(
+                to_frame, from_frame, rclpy.time.Time()
+            )
 
             point_stamped = PointStamped()
             point_stamped.header.stamp = stamp.to_msg()
