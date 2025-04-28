@@ -21,12 +21,10 @@ setup(
     entry_points={
         'console_scripts': [
             'ml = autolap.MLModel:main',
-            'lanefollower = autolap.LaneFollowerNode:main',
-            'lanefollower2 = autolap.LaneFollowerNode2:main',
-            'lanefollower3 = autolap.LaneFollowerNode3:main',
-            'Dash = autolap.Dash:main',
-            'onnx = autolap.onnx:main',
-            'person = autolap.PersonFollower:main'
+            'dash = autolap.RTC_Dash:main',
+            'person_follower = loop.person_follower:main',
+            'lane_follower = loop.lane_follower:main',
+            'navigation_controller = loop.navigation_controller:main',
         ],
     },
 )
