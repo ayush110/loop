@@ -15,6 +15,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from zed_interfaces.msg import ObjectsStamped, Object
 from threading import Lock
 from sklearn.cluster import DBSCAN
+from message_filters import Subscriber, ApproximateTimeSynchronizer
 
 from itertools import combinations
 import os
@@ -48,17 +49,30 @@ class Detector(Node):
         self.filtered_obstacles_pub = self.create_publisher(
             MarkerArray, "/filtered_objects_markers", 10
         )
-
-        self.create_subscription(
-            ObjectsStamped,
-            "/zed/zed_node/obj_det/objects",
-            self.object_detection_callback,
-            10,
-        )
-
         self.create_subscription(
             PoseStamped, "/goal_reached", self.goal_reached_callback, 10
         )
+
+        # Instead of self.create_subscription(...)
+        self.objects_sub = Subscriber(self, ObjectsStamped, "/zed/zed_node/obj_det/objects")
+        self.localization_sub = Subscriber(self, PoseStamped, "/localization_pose")
+
+        # Create a time synchronizer
+        self.ts = ApproximateTimeSynchronizer(
+            [self.objects_sub, self.localization_sub],
+            queue_size=10,
+            slop=0.5  # Allow up to 0.5 seconds time difference
+        )
+        self.ts.registerCallback(self.synced_callback)
+
+
+
+    def synced_callback(self, objects_msg: ObjectsStamped, localization_msg: PoseStamped):
+        # Now you have BOTH messages available
+
+        # You can use localization_msg to help transform or validate obj detections
+        self.object_detection_callback(objects_msg, localization_msg)
+    
 
     def object_detection_callback(self, msg: ObjectsStamped):
         updates = []  # store objects to merge
@@ -319,7 +333,7 @@ class Detector(Node):
         self, point, stamp, from_frame="base_link", to_frame="map"
     ):
         try:
-            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, rclpy.time.Time())
+            trans = self.tf_buffer.lookup_transform(to_frame, from_frame, stamp)
 
             point_stamped = PointStamped()
             point_stamped.header.stamp = stamp.to_msg()
