@@ -36,8 +36,8 @@ class NavigationController(Node):
         self.timer = self.create_timer(0.1, self.control_loop)  # 10Hz
 
         # Weighting for combining person and lane errors
-        self.kp_person = 0.5
-        self.kp_lane = 0.5
+        self.kp_person = 0.3
+        self.kp_lane = 0.7
 
         # Create PID controller for steering
         self.pid = SteeringController(kp=1.21, ki=0.02, kd=0.3)
