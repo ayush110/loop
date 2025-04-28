@@ -107,23 +107,23 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "database_path",
-                default_value="/home/nvidia/ros2_ws/src/loop/rtc_od_and_localization/racetrack_map2.db",
+                default_value="/home/nvidia/ros2_ws/src/loop/racetrack_challenge/racetrack_map2.db",
                 description="Path to saved RTAB-Map database",
             ),
             Node(
-                package="rtc_od_and_localization",
+                package="racetrack_challenge",
                 executable="object_detect_node.py",
                 name="object_detect_node",
                 output="screen",
             ),
             Node(
-                package="rtc_od_and_localization",
+                package="racetrack_challenge",
                 executable="localization_node.py",
                 name="localization_node",
                 output="screen",
             ),
             Node(
-                package="rtc_od_and_localization",
+                package="racetrack_challenge",
                 executable="navigation_controller.py",
                 name="navigation_controller",
                 output="log",

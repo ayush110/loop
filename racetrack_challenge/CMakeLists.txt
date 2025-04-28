@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(rtc_od_and_localization)
+project(racetrack_challenge)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)

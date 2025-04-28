@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>rtc_od_and_localization</name>
+  <name>racetrack_challenge</name>
   <version>3.0.0</version>
   <description>RTC object detection and Localization</description>
   <maintainer email="robotics@todo.todo">robotics</maintainer>
