@@ -2,14 +2,18 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseWithCovarian-ceStamped
-from std_msgs.msg import Header
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 
 
 class Localization(Node):
+
     def __init__(self):
         super().__init__("localization_to_tf")
+
+        # Create a TransformBroadcaster to broadcast the transforms
+        self.tf_broadcaster = TransformBroadcaster(self)
 
         # Subscribe to RTAB-Map localization pose
         self.localization_subscriber = self.create_subscription(
@@ -19,28 +23,31 @@ class Localization(Node):
             10,
         )
 
-        # Publish the pose as PoseStamped (you can use it in Detector node)
-        self.pose_pub = self.create_publisher(PoseStamped, "/localization_pose", 10)
-
     def localization_callback(self, msg: PoseWithCovarianceStamped):
-        """
-        Convert localization pose to PoseStamped and publish it.
-        """
+        # Get the pose from the message
         pose = msg.pose.pose
         translation = pose.position
         rotation = pose.orientation
 
-        pose_stamped = PoseStamped()
-        pose_stamped.header = Header()
-        pose_stamped.header.stamp = msg.header.stamp
-        pose_stamped.header.frame_id = "map"
+        # Create a TransformStamped message
+        t = TransformStamped()
 
-        pose_stamped.pose.position = translation
-        pose_stamped.pose.orientation = rotation
+        # Set header for the transform
+        t.header.stamp = msg.header.stamp
+        t.header.frame_id = "map"  # The parent frame is 'map'
+        t.child_frame_id = "base_link"  # Set this to the camera frame
 
-        # Publish the pose
-        self.pose_pub.publish(pose_stamped)
-        self.get_logger().info(f"Published PoseStamped: {pose_stamped}")
+        # Set the translation and rotation from the pose message
+        t.transform.translation.x = translation.x
+        t.transform.translation.y = translation.y
+        t.transform.translation.z = translation.z
+        t.transform.rotation = rotation
+
+        # Broadcast the transform
+        self.tf_broadcaster.sendTransform(t)
+        self.get_logger().info(
+            f"Broadcasting TF: {t.child_frame_id} -> {t.header.frame_id}"
+        )
 
 
 def main(args=None):
