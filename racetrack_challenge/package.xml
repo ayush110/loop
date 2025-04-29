@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>racetrack_challenge</name>
+  <version>3.0.0</version>
+  <description>RTC object detection and Localization</description>
+  <maintainer email="robotics@todo.todo">robotics</maintainer>
+  <license>TODO: License declaration</license>
+  <!-- Dependencies -->
+  <depend>rclpy</depend>
+  <depend>cv_bridge</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf_transformations</depend>
+
+  <!-- Build system -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+  
+  <!-- Build dependencies -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <!-- Execution dependencies -->
+  <exec_depend>zed_interfaces</exec_depend>
+  <exec_depend>zed_wrapper</exec_depend>
+  <!-- <exec_depend>tf_transformations</exec_depend> -->
+
+  <!-- <exec_depend>zed_msgs</exec_depend> -->
+</package>
