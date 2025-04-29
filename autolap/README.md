@@ -33,6 +33,6 @@ ros2 launch autolap autolap_launch.py
 ### Nodes Launched
 | Node Name               | Executable             | Description                                        |
 |-------------------------|------------------------|----------------------------------------------------|
-| `person_follower`       | `person_follower`      | Tracks and follows detected people                 |
-| `lane_follower`         | `lane_follower`        | Follows detected lane lines                        |
-| `navigation_controller` | `navigation_controller`| Combines perception inputs and sends control commands|
+| `PersonFollower`       | `person_follower`      | Tracks and follows detected people                 |
+| `LaneFollowerNode`     | `lane_follower`        | Follows detected lane lines                        |
+| `NavigationController` | `navigation_controller`| Combines perception inputs and sends control commands|
