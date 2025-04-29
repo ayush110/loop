@@ -1,30 +1,29 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
 package_name = 'autolap'
 
 setup(
     name=package_name,
     version='0.0.0',
-    packages=find_packages(exclude=['test']),
+    packages=[package_name, f'{package_name}.loop'],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', ['launch/autolap_launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='mobilerobotics-008',
-    maintainer_email='mobilerobotics-008@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    maintainer='your_name',
+    maintainer_email='your@email.com',
+    description='Autonomy stack for following lanes and people',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'ml = autolap.MLModel:main',
-            'dash = autolap.RTC_Dash:main',
-            'person_follower = loop.person_follower:main',
-            'lane_follower = loop.lane_follower:main',
-            'navigation_controller = loop.navigation_controller:main',
+            'person_follower = autolap.loop.person_follower:main',
+            'lane_follower = autolap.loop.lane_follower:main',
+            'navigation_controller = autolap.loop.navigation_controller:main',
         ],
     },
 )
